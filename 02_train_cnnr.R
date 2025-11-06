@@ -1,8 +1,15 @@
 #!/usr/bin/env Rscript
 # ==============================================================================
-# ADRD Classification Pipeline - CNN Training (CNNr)
+# ADRD Classification Pipeline - CNN Training (CNNr) [REFERENCE ONLY]
 # ==============================================================================
-# Purpose: Train CNN models with random embeddings on clinical notes
+# Version: 2.0
+#
+# ⚠️  WARNING: This script is for REFERENCE ONLY
+# ⚠️  Use Jihad Obeid's pre-trained models instead - NO training required!
+# ⚠️  See README.md for instructions on using pre-trained models
+# ⚠️  Copy Jihad's models to models/ directory and run 03_evaluate_models.R
+#
+# Purpose: Documents CNN training process with random embeddings
 # Code follows methodology from Jihad Obeid's original implementation
 #
 # Inputs:  data/train_set.rds, data/test_set.rds
