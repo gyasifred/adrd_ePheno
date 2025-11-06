@@ -225,45 +225,23 @@ cat("  ADRD cases:", sum(y_test),
 cat("  Control cases:", sum(y_test == 0), 
     sprintf("(%.1f%%)", mean(y_test == 0) * 100), "\n\n")
 
+# Load Model Utilities ========================================================
+cat("Loading model utilities...\n")
+source("utils_model_loader.R")
+cat("\n")
+
 # Load Artifacts ==============================================================
 cat(strrep("=", 80) %+% "\n")
-cat("Loading Tokenizer and Artifacts\n")
+cat("Loading Tokenizer and Artifacts (Auto-detection)\n")
 cat(strrep("=", 80) %+% "\n\n")
 
-# Load tokenizer using Keras 2 method (following Jihad's approach)
-tokenizer_file <- file.path(MODEL_DIR, "tokenizer_cnnr")
+# Use automatic artifact loading (compatible with both naming conventions)
+artifacts <- load_all_artifacts(MODEL_DIR)
 
-if (!file.exists(tokenizer_file)) {
-  stop("Tokenizer file not found: ", tokenizer_file, 
-       "\nPlease run 02_train_cnnr.R first!")
-}
-
-cat("Loading tokenizer from:", tokenizer_file, "\n")
-tokenizer <- load_text_tokenizer(tokenizer_file)
-cat("Tokenizer loaded successfully\n")
-
-# Verify tokenizer
-if (is.null(tokenizer$word_index)) {
-  stop("Tokenizer failed to load properly - word_index is NULL!")
-}
-
-cat("  Vocabulary size:", length(tokenizer$word_index), "words\n")
-
-# Load maxlen
-maxlen_file <- file.path(MODEL_DIR, "maxlen.rds")
-if (!file.exists(maxlen_file)) {
-  stop("Maxlen file not found: ", maxlen_file)
-}
-
-maxlen <- readRDS(maxlen_file)
-cat("  Maximum sequence length (maxlen):", maxlen, "\n")
-
-# Load vocab size
-vocab_size_file <- file.path(MODEL_DIR, "vocab_size.rds")
-if (file.exists(vocab_size_file)) {
-  vocab_size <- readRDS(vocab_size_file)
-  cat("  Vocab size (with padding):", vocab_size, "\n")
-}
+# Extract for compatibility with rest of script
+tokenizer <- artifacts$tokenizer
+maxlen <- artifacts$maxlen
+vocab_size <- artifacts$vocab_size
 
 cat("\n")
 
@@ -280,25 +258,14 @@ cat("  Test tensor shape:", paste(dim(x_test), collapse = " x "), "\n\n")
 
 # Find Available Models =======================================================
 cat(strrep("=", 80) %+% "\n")
-cat("Finding Available Models\n")
+cat("Finding Available Models (Auto-detection)\n")
 cat(strrep("=", 80) %+% "\n\n")
 
-model_files <- list.files(MODEL_DIR, 
-                          pattern = "^model_CNNr\\d+\\.h5$",
-                          full.names = TRUE)
+# Use utility function to find models (compatible with both naming conventions)
+model_files <- artifacts$model_files
+cycles <- artifacts$cycles
 
-if (length(model_files) == 0) {
-  stop("No trained models found in: ", MODEL_DIR, 
-       "\nPlease run 02_train_cnnr.R first!")
-}
-
-# Extract cycle numbers
-cycles <- as.numeric(gsub(".*CNNr(\\d+)\\.h5", "\\1", basename(model_files)))
-model_files <- model_files[order(cycles)]
-cycles <- sort(cycles)
-
-cat("Found", length(cycles), "trained models\n")
-cat("Cycles:", paste(cycles, collapse = ", "), "\n\n")
+cat("Models detected using automatic naming convention detection\n\n")
 
 # Evaluate All Models =========================================================
 cat(strrep("=", 80) %+% "\n")

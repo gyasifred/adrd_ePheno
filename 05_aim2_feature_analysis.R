@@ -521,7 +521,317 @@ if (!is.null(predictions)) {
 }
 
 # ==============================================================================
-# PART 7: SUMMARY REPORT
+# PART 6B: LIME EXPLAINABILITY (FULL IMPLEMENTATION)
+# ==============================================================================
+
+if (!is.null(predictions) && requireNamespace("lime", quietly = TRUE)) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("PART 6B: LIME Explainability - Full Implementation\n")
+  cat(strrep("=", 80) %+% "\n\n")
+
+  library(lime)
+
+  cat("Loading trained model for LIME...\n")
+  source("utils_model_loader.R")
+
+  artifacts <- load_all_artifacts(MODEL_DIR)
+
+  # Find best model
+  best_info_file <- file.path(RESULTS_DIR, "best_model_info.rds")
+  if (file.exists(best_info_file)) {
+    best_info <- readRDS(best_info_file)
+    best_cycle <- best_info$best_cycle
+  } else {
+    best_cycle <- 1  # Default to first model
+  }
+
+  cat("Loading model cycle", best_cycle, "...\n")
+  model <- load_model_auto(best_cycle, MODEL_DIR)
+
+  # Create prediction function for LIME
+  predict_fun <- function(texts) {
+    # Tokenize
+    sequences <- texts_to_sequences(artifacts$tokenizer, texts)
+    # Pad
+    padded <- pad_sequences(sequences, maxlen = artifacts$maxlen, padding = "pre")
+    # Predict
+    preds <- model %>% predict(padded, verbose = 0)
+    # Return probabilities for both classes
+    cbind(1 - preds[, 1], preds[, 1])
+  }
+
+  # Create LIME explainer
+  cat("Creating LIME explainer...\n")
+  explainer <- lime(
+    test_set$txt,
+    model = predict_fun,
+    preprocess = tolower  # Simple preprocessing
+  )
+
+  # Select samples for explanation
+  lime_cases <- lime_samples %>%
+    left_join(test_set %>% select(DE_ID, txt), by = "DE_ID")
+
+  cat("Generating LIME explanations for", nrow(lime_cases), "cases...\n")
+
+  explanations <- explain(
+    lime_cases$txt,
+    explainer,
+    n_labels = 1,  # Explain ADRD class
+    n_features = 10,  # Top 10 features
+    n_permutations = 1000
+  )
+
+  # Save explanations
+  write_csv(explanations,
+            file.path(AIM2_RESULTS_DIR, "lime_explanations.csv"))
+  cat("LIME explanations saved\n")
+
+  # Create LIME visualization
+  cat("Creating LIME visualization...\n")
+
+  png(file.path(AIM2_FIGURES_DIR, "lime_explanations.png"),
+      width = 14, height = 10, units = "in", res = 300)
+  plot_features(explanations)
+  dev.off()
+
+  cat("LIME visualization saved\n\n")
+
+} else if (is.null(predictions)) {
+  cat("\nPredictions not available - skipping LIME\n\n")
+} else {
+  cat("\nLIME package not installed. To enable:\n")
+  cat("  install.packages('lime')\n\n")
+}
+
+# ==============================================================================
+# PART 7: BEHAVIORAL TESTING FRAMEWORK
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 7: Behavioral Testing Framework\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Behavioral testing analyzes model sensitivity to specific terms\n")
+cat("by removing discriminative terms and measuring prediction changes.\n\n")
+
+# Select top discriminative terms for behavioral testing
+behavioral_test_terms <- list()
+
+# Top 10 ADRD terms
+if (nrow(top_adrd_terms) > 0) {
+  behavioral_test_terms$adrd <- head(top_adrd_terms$feature, 10)
+}
+
+# Top 10 CTRL terms
+if (nrow(top_ctrl_terms) > 0) {
+  behavioral_test_terms$ctrl <- head(top_ctrl_terms$feature, 10)
+}
+
+cat("Selected terms for behavioral testing:\n")
+cat("  ADRD terms:", length(behavioral_test_terms$adrd), "\n")
+cat("  CTRL terms:", length(behavioral_test_terms$ctrl), "\n\n")
+
+# Save behavioral test terms
+saveRDS(behavioral_test_terms,
+        file.path(AIM2_RESULTS_DIR, "behavioral_test_terms.rds"))
+
+# Create behavioral testing function
+create_behavioral_test <- function(original_text, term_to_remove) {
+  #' Remove a term from text and return modified version
+  #'
+  #' @param original_text Original clinical note
+  #' @param term_to_remove Term to remove
+  #' @return Modified text with term removed
+
+  # Simple removal (can be enhanced with synonyms, etc.)
+  modified_text <- gsub(
+    paste0("\\b", term_to_remove, "\\b"),
+    "",  # Replace with empty
+    original_text,
+    ignore.case = TRUE
+  )
+
+  # Clean up extra spaces
+  modified_text <- gsub("\\s+", " ", modified_text)
+  modified_text <- trimws(modified_text)
+
+  return(modified_text)
+}
+
+# Demonstrate behavioral testing on sample cases
+if (!is.null(predictions) && file.exists(file.path(AIM2_RESULTS_DIR, "lime_sample_cases.csv"))) {
+  cat("Demonstrating behavioral testing on sample cases...\n")
+
+  # Load sample cases
+  sample_cases <- read_csv(file.path(AIM2_RESULTS_DIR, "lime_sample_cases.csv"),
+                           show_col_types = FALSE)
+
+  # Select one ADRD case for demonstration
+  demo_case <- sample_cases %>%
+    filter(Label == 1) %>%
+    slice_head(n = 1)
+
+  if (nrow(demo_case) > 0) {
+    # Get original text
+    original_text <- test_set %>%
+      filter(DE_ID == demo_case$DE_ID) %>%
+      pull(txt)
+
+    if (length(original_text) > 0) {
+      cat("\nBehavioral Test Demonstration:\n")
+      cat("Original prediction:", sprintf("%.4f", demo_case$Predicted_Probability), "\n")
+
+      # Test removal of each ADRD term
+      behavioral_results <- data.frame(
+        term_removed = character(),
+        term_present = logical(),
+        prediction_change = numeric(),
+        stringsAsFactors = FALSE
+      )
+
+      for (term in behavioral_test_terms$adrd[1:5]) {  # Test first 5 terms
+        # Check if term is present
+        term_present <- grepl(paste0("\\b", term, "\\b"), original_text, ignore.case = TRUE)
+
+        if (term_present) {
+          # Create modified text
+          modified_text <- create_behavioral_test(original_text, term)
+
+          # Get prediction if model loaded
+          if (exists("model") && exists("artifacts")) {
+            # Tokenize and predict
+            seq_orig <- texts_to_sequences(artifacts$tokenizer, original_text)
+            seq_mod <- texts_to_sequences(artifacts$tokenizer, modified_text)
+
+            pad_orig <- pad_sequences(seq_orig, maxlen = artifacts$maxlen, padding = "pre")
+            pad_mod <- pad_sequences(seq_mod, maxlen = artifacts$maxlen, padding = "pre")
+
+            pred_orig <- model %>% predict(pad_orig, verbose = 0)
+            pred_mod <- model %>% predict(pad_mod, verbose = 0)
+
+            pred_change <- pred_mod[1, 1] - pred_orig[1, 1]
+
+            behavioral_results <- rbind(behavioral_results, data.frame(
+              term_removed = term,
+              term_present = TRUE,
+              prediction_change = pred_change
+            ))
+
+            cat("  Term '", term, "': Δ prediction = ", sprintf("%.4f", pred_change), "\n", sep = "")
+          }
+        } else {
+          behavioral_results <- rbind(behavioral_results, data.frame(
+            term_removed = term,
+            term_present = FALSE,
+            prediction_change = NA
+          ))
+        }
+      }
+
+      # Save behavioral test results
+      write_csv(behavioral_results,
+                file.path(AIM2_RESULTS_DIR, "behavioral_test_demo_results.csv"))
+      cat("\nBehavioral test demonstration results saved\n")
+    }
+  }
+  cat("\n")
+}
+
+# Create behavioral testing script template
+cat("Creating behavioral testing script template...\n")
+
+behavioral_script <- '# Behavioral Testing Script Template
+# ==============================================================================
+# Purpose: Systematically test model sensitivity to specific terms
+#
+# Usage:
+#   1. Select terms from behavioral_test_terms.rds
+#   2. For each term, create modified versions of test cases
+#   3. Compare predictions on original vs modified texts
+#   4. Measure sensitivity (Δ prediction)
+# ==============================================================================
+
+# Load terms
+behavioral_test_terms <- readRDS("results/aim2/behavioral_test_terms.rds")
+
+# Load model and artifacts
+source("utils_model_loader.R")
+artifacts <- load_all_artifacts("models")
+best_cycle <- 1  # Update with your best model cycle
+model <- load_model_auto(best_cycle, "models")
+
+# Load test set
+test_set <- readRDS("data/test_set.rds")
+
+# Function to test term removal
+test_term_removal <- function(de_id, term, model, artifacts, test_set) {
+  # Get original text
+  original_text <- test_set %>%
+    filter(DE_ID == de_id) %>%
+    pull(txt)
+
+  # Check if term present
+  term_present <- grepl(paste0("\\\\b", term, "\\\\b"), original_text, ignore.case = TRUE)
+
+  if (!term_present) {
+    return(list(term_present = FALSE, pred_change = NA))
+  }
+
+  # Remove term
+  modified_text <- gsub(paste0("\\\\b", term, "\\\\b"), "", original_text, ignore.case = TRUE)
+  modified_text <- gsub("\\\\s+", " ", trimws(modified_text))
+
+  # Get predictions
+  seq_orig <- texts_to_sequences(artifacts$tokenizer, original_text)
+  seq_mod <- texts_to_sequences(artifacts$tokenizer, modified_text)
+
+  pad_orig <- pad_sequences(seq_orig, maxlen = artifacts$maxlen, padding = "pre")
+  pad_mod <- pad_sequences(seq_mod, maxlen = artifacts$maxlen, padding = "pre")
+
+  pred_orig <- model %>% predict(pad_orig, verbose = 0)
+  pred_mod <- model %>% predict(pad_mod, verbose = 0)
+
+  pred_change <- pred_mod[1, 1] - pred_orig[1, 1]
+
+  return(list(
+    term_present = TRUE,
+    pred_orig = pred_orig[1, 1],
+    pred_mod = pred_mod[1, 1],
+    pred_change = pred_change
+  ))
+}
+
+# Run behavioral tests
+# Example: Test all ADRD terms on all ADRD cases
+results <- data.frame()
+
+for (term in behavioral_test_terms$adrd) {
+  adrd_cases <- test_set %>% filter(label == 1)
+
+  for (de_id in adrd_cases$DE_ID[1:min(50, nrow(adrd_cases))]) {
+    result <- test_term_removal(de_id, term, model, artifacts, test_set)
+
+    if (result$term_present) {
+      results <- rbind(results, data.frame(
+        DE_ID = de_id,
+        term = term,
+        pred_change = result$pred_change
+      ))
+    }
+  }
+}
+
+# Analyze results
+summary(results$pred_change)
+'
+
+writeLines(behavioral_script,
+           file.path(AIM2_RESULTS_DIR, "behavioral_testing_template.R"))
+cat("Behavioral testing template saved\n\n")
+
+# ==============================================================================
+# PART 8: SUMMARY REPORT
 # ==============================================================================
 
 cat(strrep("=", 80) %+% "\n")

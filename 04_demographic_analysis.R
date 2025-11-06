@@ -44,6 +44,11 @@ suppressPackageStartupMessages({
 
 options(dplyr.summarise.inform = FALSE)
 
+# Load Statistical Testing Utilities ==========================================
+cat("Loading statistical testing utilities...\n")
+source("utils_statistical_tests.R")
+cat("\n")
+
 # Configuration ===============================================================
 cat("\nConfiguration:\n")
 cat(strrep("-", 80) %+% "\n")
@@ -64,9 +69,22 @@ OPTIMAL_THRESHOLD <- 0.5        # Classification threshold
 CONFIDENCE_LEVEL <- 0.95        # For confidence intervals
 MIN_SUBGROUP_SIZE <- 10         # Minimum samples for subgroup analysis
 
+# Statistical testing parameters
+N_PERMUTATIONS <- 10000         # Number of permutations for significance tests
+N_BOOTSTRAP <- 10000            # Number of bootstrap samples for CIs
+FDR_ALPHA <- 0.05               # False discovery rate threshold
+RUN_STATISTICAL_TESTS <- TRUE   # Enable/disable statistical tests
+
 cat("  Classification threshold:", OPTIMAL_THRESHOLD, "\n")
 cat("  Confidence level:", CONFIDENCE_LEVEL, "\n")
-cat("  Minimum subgroup size:", MIN_SUBGROUP_SIZE, "\n\n")
+cat("  Minimum subgroup size:", MIN_SUBGROUP_SIZE, "\n")
+if (RUN_STATISTICAL_TESTS) {
+  cat("  Statistical testing: ENABLED\n")
+  cat("    Permutations:", N_PERMUTATIONS, "\n")
+  cat("    Bootstrap samples:", N_BOOTSTRAP, "\n")
+  cat("    FDR alpha:", FDR_ALPHA, "\n")
+}
+cat("\n")
 
 # Helper Functions ============================================================
 
@@ -399,16 +417,61 @@ if ("GENDER" %in% available_demos) {
     genders <- names(gender_metrics_list)
     auc_vals <- sapply(gender_metrics_list, function(x) x$auc)
     auc_diff <- abs(auc_vals[1] - auc_vals[2])
-    
+
     sens_vals <- sapply(gender_metrics_list, function(x) x$sensitivity)
     sens_diff <- abs(sens_vals[1] - sens_vals[2])
-    
+
     cat("Gender Performance Comparison:\n")
     cat("  AUC difference:", sprintf("%.4f", auc_diff))
     cat(ifelse(auc_diff > 0.05, " ⚠ WARNING\n", " ✓ OK\n"))
     cat("  Sensitivity difference:", sprintf("%.4f", sens_diff))
     cat(ifelse(sens_diff > 0.10, " ⚠ WARNING\n", " ✓ OK\n"))
     cat("\n")
+
+    # Statistical significance testing
+    if (RUN_STATISTICAL_TESTS && length(genders) == 2) {
+      cat("Running statistical significance tests...\n")
+
+      # Prepare data for statistical tests
+      gender_a <- genders[1]
+      gender_b <- genders[2]
+
+      data_a <- analysis_data %>%
+        filter(GENDER == gender_a) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      data_b <- analysis_data %>%
+        filter(GENDER == gender_b) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      # Comprehensive comparison
+      stat_result <- compare_groups_comprehensive(
+        data_a, data_b,
+        group_a_name = gender_a,
+        group_b_name = gender_b,
+        n_perm = N_PERMUTATIONS,
+        n_boot = N_BOOTSTRAP
+      )
+
+      cat("\nStatistical Test Results:\n")
+      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
+      if (stat_result$perm_p_value < FDR_ALPHA) {
+        cat(" *** SIGNIFICANT\n")
+      } else {
+        cat(" (not significant)\n")
+      }
+      cat("  Cohen's d (effect size):", sprintf("%.3f", stat_result$cohens_d), "\n")
+      cat("  Interpretation:",
+          ifelse(abs(stat_result$cohens_d) >= 0.8, "Large effect",
+          ifelse(abs(stat_result$cohens_d) >= 0.5, "Medium effect",
+          ifelse(abs(stat_result$cohens_d) >= 0.2, "Small effect", "Negligible"))), "\n\n")
+
+      # Store for later
+      if (!exists("statistical_test_results")) {
+        statistical_test_results <- list()
+      }
+      statistical_test_results$gender <- stat_result
+    }
   }
 }
 
