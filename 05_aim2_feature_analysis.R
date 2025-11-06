@@ -556,24 +556,41 @@ if (!is.null(predictions) && requireNamespace("lime", quietly = TRUE)) {
   cat("Loading model cycle", best_cycle, "...\n")
   model <- load_model_auto(best_cycle, MODEL_DIR)
 
-  # Create prediction function for LIME
-  predict_fun <- function(texts) {
-    # Tokenize
-    sequences <- texts_to_sequences(artifacts$tokenizer, texts)
-    # Pad
-    padded <- pad_sequences(sequences, maxlen = artifacts$maxlen, padding = "pre")
-    # Predict
-    preds <- model %>% predict(padded, verbose = 0)
-    # Return probabilities for both classes
-    cbind(1 - preds[, 1], preds[, 1])
+  # Create a wrapper class for Keras text model
+  text_model <- structure(
+    list(
+      model = model,
+      tokenizer = artifacts$tokenizer,
+      maxlen = artifacts$maxlen
+    ),
+    class = "keras_text_model"
+  )
+
+  # Define model_type method for our wrapper
+  model_type.keras_text_model <- function(x, ...) {
+    "classification"
+  }
+
+  # Define predict_model method for our wrapper
+  predict_model.keras_text_model <- function(x, newdata, type = "raw", ...) {
+    # newdata is a character vector of texts
+    sequences <- texts_to_sequences(x$tokenizer, newdata)
+    padded <- pad_sequences(sequences, maxlen = x$maxlen, padding = "pre")
+    preds <- x$model %>% predict(padded, verbose = 0)
+    # Return probabilities for both classes (NON-ADRD, ADRD)
+    data.frame(
+      `0` = 1 - preds[, 1],
+      `1` = preds[, 1],
+      check.names = FALSE
+    )
   }
 
   # Create LIME explainer
   cat("Creating LIME explainer...\n")
   explainer <- lime(
-    test_set$txt,
-    model = predict_fun,
-    preprocess = tolower  # Simple preprocessing
+    x = test_set$txt,
+    model = text_model,
+    preprocess = tolower
   )
 
   # Select samples for explanation
@@ -671,6 +688,25 @@ create_behavioral_test <- function(original_text, term_to_remove) {
 if (!is.null(predictions) && file.exists(file.path(AIM2_RESULTS_DIR, "lime_sample_cases.csv"))) {
   cat("Demonstrating behavioral testing on sample cases...\n")
 
+  # Load model and artifacts if not already loaded (from LIME section)
+  if (!exists("model") || !exists("artifacts")) {
+    cat("Loading model for behavioral testing...\n")
+    source("utils_model_loader.R")
+    artifacts <- load_all_artifacts(MODEL_DIR)
+
+    # Find best model
+    best_info_file <- file.path(RESULTS_DIR, "best_model_info.rds")
+    if (file.exists(best_info_file)) {
+      best_info <- readRDS(best_info_file)
+      best_cycle <- best_info$best_cycle
+    } else {
+      best_cycle <- 1  # Default to first model
+    }
+
+    cat("Loading model cycle", best_cycle, "...\n")
+    model <- load_model_auto(best_cycle, MODEL_DIR)
+  }
+
   # Load sample cases
   sample_cases <- read_csv(file.path(AIM2_RESULTS_DIR, "lime_sample_cases.csv"),
                            show_col_types = FALSE)
@@ -706,7 +742,7 @@ if (!is.null(predictions) && file.exists(file.path(AIM2_RESULTS_DIR, "lime_sampl
           # Create modified text
           modified_text <- create_behavioral_test(original_text, term)
 
-          # Get prediction if model loaded
+          # Get prediction
           if (exists("model") && exists("artifacts")) {
             # Tokenize and predict
             seq_orig <- texts_to_sequences(artifacts$tokenizer, original_text)
