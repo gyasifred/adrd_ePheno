@@ -1,6 +1,7 @@
 # ==============================================================================
 # Statistical Testing Utilities
 # ==============================================================================
+# Author: Gyasi, Frederick
 # Purpose: Implement statistical significance testing for demographic comparisons
 #
 # Methods:

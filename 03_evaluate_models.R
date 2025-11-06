@@ -1,19 +1,26 @@
 #!/usr/bin/env Rscript
 # ==============================================================================
-# ADRD Classification Pipeline - Model Evaluation
+# ADRD ePhenotyping Pipeline - Model Evaluation [START HERE]
 # ==============================================================================
+# Version: 2.0
+# Author: Gyasi, Frederick
+# Evaluation Using Jihad Obeid's Pre-Trained Models
+#
+# 🎯 KEY: This pipeline uses JIHAD'S TRAINED MODELS - No training required!
+# 📂 Ensure Jihad's models are in models/ directory (auto-detects naming conventions)
+#
 # Purpose: Comprehensive evaluation of trained CNN models
 # Code follows methodology from Jihad Obeid's original implementation
 #
 # This script performs:
-# 1. Loads all trained models and artifacts
+# 1. Auto-loads trained models and artifacts (supports CL07_* and current naming)
 # 2. Generates predictions on test set
 # 3. Calculates comprehensive metrics (following Jihad's approach)
 # 4. Selects best model using median AUC with max F1
 # 5. Creates visualizations (ROC, calibration, distributions)
 #
-# Inputs:  models/*, data/test_set.rds, results/*
-# Outputs: results/evaluation_*, figures/*
+# Inputs:  models/*, data/test_set.rds
+# Outputs: results/evaluation_*, results/predictions_df.csv, figures/*
 # ==============================================================================
 
 # Define operators FIRST (before any usage)

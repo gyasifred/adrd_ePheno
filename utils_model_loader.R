@@ -1,6 +1,7 @@
 # ==============================================================================
 # Model and Artifact Loading Utilities
 # ==============================================================================
+# Author: Gyasi, Frederick
 # Purpose: Load trained models and artifacts with compatibility for both
 #          current naming conventions and Jihad Obeid's original naming
 #

@@ -1,5 +1,6 @@
 # ADRD ePhenotyping Project - Implementation Summary
 
+**Author**: Gyasi, Frederick
 **Date**: 2025-11-06
 **Branch**: `claude/standardize-pipeline-artifacts-011CUrqALuYizhgYftC1NEk3`
 **Status**: ✅ Complete - Ready for Review

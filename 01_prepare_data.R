@@ -1,8 +1,15 @@
 #!/usr/bin/env Rscript
 # ==============================================================================
-# ADRD ePhenotyping Pipeline - Data Preparation
+# ADRD ePhenotyping Pipeline - Data Preparation [OPTIONAL]
 # ==============================================================================
+# Version: 2.0
+# Author: Gyasi, Frederick
 # Project: adrd_ephenotyping
+#
+# ⚠️  NOTE: This script is OPTIONAL
+# ⚠️  Run only if you need to create train/test split from raw data
+# ⚠️  For evaluation using Jihad Obeid's pre-trained models, skip to 03_evaluate_models.R
+#
 # Purpose: Load, validate, and split data for CNN training
 #
 # Input:  data/raw/ptHx_sample_v2025-10-25.csv
