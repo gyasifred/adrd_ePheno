@@ -1,0 +1,956 @@
+#!/usr/bin/env Rscript
+# ==============================================================================
+# ADRD ePhenotyping Pipeline - AIM 2: Feature Analysis & Explainability
+# ==============================================================================
+# Purpose: Identify cohort-specific features and model sensitivity
+#
+# Aim 2 Objectives:
+# 1. Corpus Analysis - Identify overrepresented terms using χ² testing
+# 2. TF-IDF Analysis - Find discriminative features
+# 3. LIME Explainability - Understand individual predictions
+# 4. Feature Importance Visualization
+#
+# Methodology:
+# - χ²-squared testing for term significance
+# - Term frequency-inverse document frequency (TF-IDF)
+# - Local Interpretable Model-agnostic Explanations (LIME)
+# - Behavioral testing framework (foundation)
+#
+# Inputs:  data/train_set.rds, data/test_set.rds,
+#          models/best_model, results/predictions_df.csv
+# Outputs: results/aim2/*, figures/aim2/*
+# ==============================================================================
+
+# Define operators FIRST
+`%+%` <- function(a, b) paste0(a, b)
+
+# Load Libraries ==============================================================
+cat(strrep("=", 80) %+% "\n")
+cat("ADRD ePhenotyping - AIM 2: Feature Analysis & Explainability\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Loading required libraries...\n")
+suppressPackageStartupMessages({
+  library(tidyverse)      # Data manipulation
+  library(quanteda)       # Text analysis
+  library(quanteda.textstats)  # Text statistics
+  library(quanteda.textplots)  # Text plots
+  library(ggplot2)        # Visualization
+  library(gridExtra)      # Multiple plots
+  library(scales)         # Plot formatting
+  library(writexl)        # Excel export
+  library(wordcloud)      # Word clouds
+  library(RColorBrewer)   # Color palettes
+  library(ggrepel)        # Better plot labels
+  library(keras)          # For loading trained model
+  library(reticulate)     # Python interface
+})
+
+options(dplyr.summarise.inform = FALSE)
+quanteda_options(threads = 4)  # Parallel processing
+
+# Configuration ===============================================================
+cat("\nConfiguration:\n")
+cat(strrep("-", 80) %+% "\n")
+
+# Paths
+DATA_DIR <- "data"
+MODEL_DIR <- "models"
+RESULTS_DIR <- "results"
+FIGURES_DIR <- "figures"
+
+# Create subdirectories for Aim 2 results
+AIM2_RESULTS_DIR <- file.path(RESULTS_DIR, "aim2")
+AIM2_FIGURES_DIR <- file.path(FIGURES_DIR, "aim2")
+dir.create(AIM2_RESULTS_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(AIM2_FIGURES_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# Analysis parameters
+TOP_N_FEATURES <- 100        # Top N features to report
+MIN_TERM_FREQ <- 10          # Minimum term frequency for analysis
+CHI_SQUARE_ALPHA <- 0.05     # Significance level for χ² test
+FDR_METHOD <- "BH"           # False discovery rate method (Benjamini-Hochberg)
+
+cat("  Top N features:", TOP_N_FEATURES, "\n")
+cat("  Min term frequency:", MIN_TERM_FREQ, "\n")
+cat("  Chi-square alpha:", CHI_SQUARE_ALPHA, "\n")
+cat("  FDR correction:", FDR_METHOD, "\n\n")
+
+# Load Data ===================================================================
+cat(strrep("=", 80) %+% "\n")
+cat("Loading Data\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+# Load train and test sets
+train_file <- file.path(DATA_DIR, "train_set.rds")
+test_file <- file.path(DATA_DIR, "test_set.rds")
+
+if (!file.exists(train_file) || !file.exists(test_file)) {
+  stop("Data files not found! Run 01_prepare_data.R first.")
+}
+
+train_set <- readRDS(train_file)
+test_set <- readRDS(test_file)
+
+cat("Training set:", nrow(train_set), "samples\n")
+cat("Test set:", nrow(test_set), "samples\n")
+
+# Combine for corpus analysis
+full_corpus <- bind_rows(
+  train_set %>% mutate(partition = "train"),
+  test_set %>% mutate(partition = "test")
+)
+
+cat("Total corpus:", nrow(full_corpus), "documents\n\n")
+
+# Display class distribution
+cat("Class distribution:\n")
+print(table(full_corpus$label))
+cat("\n")
+
+# Load predictions (for LIME analysis)
+pred_file <- file.path(RESULTS_DIR, "predictions_df.csv")
+if (file.exists(pred_file)) {
+  predictions <- read_csv(pred_file, show_col_types = FALSE)
+  cat("Predictions loaded:", nrow(predictions), "samples\n\n")
+} else {
+  cat("WARNING: predictions_df.csv not found. LIME analysis will be skipped.\n\n")
+  predictions <- NULL
+}
+
+# ==============================================================================
+# PART 1: CORPUS ANALYSIS
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 1: Corpus Analysis\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+# Create corpus object
+cat("Creating quanteda corpus...\n")
+adrd_corpus <- corpus(full_corpus, text_field = "txt", docid_field = "DE_ID")
+
+# Add document variables
+docvars(adrd_corpus, "label") <- full_corpus$label
+docvars(adrd_corpus, "label_str") <- ifelse(full_corpus$label == 1, "ADRD", "CTRL")
+docvars(adrd_corpus, "partition") <- full_corpus$partition
+
+cat("  Documents:", ndoc(adrd_corpus), "\n")
+cat("  ADRD:", sum(docvars(adrd_corpus, "label") == 1), "\n")
+cat("  CTRL:", sum(docvars(adrd_corpus, "label") == 0), "\n\n")
+
+# Tokenization
+cat("Tokenizing corpus...\n")
+adrd_tokens <- tokens(
+  adrd_corpus,
+  what = "word",
+  remove_punct = TRUE,
+  remove_symbols = TRUE,
+  remove_numbers = FALSE,  # Keep numbers (might be clinically relevant)
+  remove_url = TRUE,
+  remove_separators = TRUE,
+  split_hyphens = FALSE
+)
+
+# Remove stopwords
+cat("Removing stopwords...\n")
+adrd_tokens <- tokens_remove(adrd_tokens, pattern = stopwords("en"))
+
+# Create Document-Feature Matrix
+cat("Creating document-feature matrix...\n")
+adrd_dfm <- dfm(adrd_tokens)
+
+cat("  Features (unique terms):", nfeat(adrd_dfm), "\n")
+cat("  Documents:", ndoc(adrd_dfm), "\n\n")
+
+# Trim rare features
+cat("Trimming rare features (min frequency = ", MIN_TERM_FREQ, ")...\n", sep = "")
+adrd_dfm_trimmed <- dfm_trim(adrd_dfm, min_termfreq = MIN_TERM_FREQ)
+
+cat("  Features after trimming:", nfeat(adrd_dfm_trimmed), "\n\n")
+
+# ==============================================================================
+# PART 2: WORD FREQUENCY ANALYSIS
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 2: Word Frequency Analysis\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+# Overall frequency
+cat("Calculating overall term frequencies...\n")
+term_freq_all <- textstat_frequency(adrd_dfm_trimmed)
+
+cat("  Top 20 most frequent terms:\n")
+print(head(term_freq_all, 20))
+cat("\n")
+
+# Frequency by class
+cat("Calculating term frequencies by class (ADRD vs CTRL)...\n")
+adrd_dfm_grouped <- dfm_group(adrd_dfm_trimmed, groups = label_str)
+
+term_freq_by_class <- textstat_frequency(adrd_dfm_grouped,
+                                         groups = label_str)
+
+cat("  Top 10 terms in ADRD notes:\n")
+print(head(term_freq_by_class %>% filter(group == "ADRD"), 10))
+cat("\n")
+
+cat("  Top 10 terms in CTRL notes:\n")
+print(head(term_freq_by_class %>% filter(group == "CTRL"), 10))
+cat("\n")
+
+# Save frequency tables
+write_csv(term_freq_all,
+          file.path(AIM2_RESULTS_DIR, "term_frequencies_overall.csv"))
+write_csv(term_freq_by_class,
+          file.path(AIM2_RESULTS_DIR, "term_frequencies_by_class.csv"))
+cat("Frequency tables saved\n\n")
+
+# ==============================================================================
+# PART 3: CHI-SQUARED TEST FOR DISCRIMINATIVE TERMS
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 3: Chi-Squared Test for Discriminative Terms\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Performing chi-squared test...\n")
+
+# Calculate chi-squared statistics
+chi2_results <- textstat_keyness(adrd_dfm_grouped,
+                                  target = "ADRD",
+                                  measure = "chi2")
+
+# Sort by chi-squared value
+chi2_results <- chi2_results %>%
+  arrange(desc(chi2)) %>%
+  mutate(
+    # Calculate p-value from chi-squared (df=1 for 2x2 table)
+    p_value = pchisq(chi2, df = 1, lower.tail = FALSE),
+    # Apply FDR correction
+    p_adjusted = p.adjust(p_value, method = FDR_METHOD),
+    # Determine significance
+    significant = p_adjusted < CHI_SQUARE_ALPHA
+  )
+
+cat("  Total features tested:", nrow(chi2_results), "\n")
+cat("  Significant features (FDR < ", CHI_SQUARE_ALPHA, "): ",
+    sum(chi2_results$significant, na.rm = TRUE), "\n\n", sep = "")
+
+# Extract top discriminative terms
+top_adrd_terms <- chi2_results %>%
+  filter(chi2 > 0, significant) %>%  # Positive chi2 = overrepresented in ADRD
+  arrange(desc(chi2)) %>%
+  head(TOP_N_FEATURES)
+
+top_ctrl_terms <- chi2_results %>%
+  filter(chi2 < 0, significant) %>%  # Negative chi2 = overrepresented in CTRL
+  arrange(chi2) %>%
+  head(TOP_N_FEATURES)
+
+cat("Top 20 terms overrepresented in ADRD:\n")
+print(head(top_adrd_terms, 20))
+cat("\n")
+
+cat("Top 20 terms overrepresented in CTRL:\n")
+print(head(top_ctrl_terms, 20))
+cat("\n")
+
+# Save chi-squared results
+write_csv(chi2_results,
+          file.path(AIM2_RESULTS_DIR, "chi_squared_results.csv"))
+write_xlsx(list(
+  All_Results = chi2_results,
+  Top_ADRD = top_adrd_terms,
+  Top_CTRL = top_ctrl_terms
+), file.path(AIM2_RESULTS_DIR, "discriminative_terms.xlsx"))
+cat("Chi-squared results saved\n\n")
+
+# ==============================================================================
+# PART 4: TF-IDF ANALYSIS
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 4: TF-IDF Analysis\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Calculating TF-IDF weights...\n")
+
+# Calculate TF-IDF
+adrd_tfidf <- dfm_tfidf(adrd_dfm_grouped)
+
+# Extract top TF-IDF terms for each class
+top_tfidf_adrd <- topfeatures(adrd_tfidf[docid(adrd_tfidf) == "ADRD", ],
+                               n = TOP_N_FEATURES)
+top_tfidf_ctrl <- topfeatures(adrd_tfidf[docid(adrd_tfidf) == "CTRL", ],
+                               n = TOP_N_FEATURES)
+
+cat("  Top 20 TF-IDF terms for ADRD:\n")
+print(head(top_tfidf_adrd, 20))
+cat("\n")
+
+cat("  Top 20 TF-IDF terms for CTRL:\n")
+print(head(top_tfidf_ctrl, 20))
+cat("\n")
+
+# Save TF-IDF results
+tfidf_results <- data.frame(
+  ADRD_term = names(top_tfidf_adrd),
+  ADRD_tfidf = as.numeric(top_tfidf_adrd),
+  CTRL_term = names(top_tfidf_ctrl),
+  CTRL_tfidf = as.numeric(top_tfidf_ctrl)
+)
+
+write_csv(tfidf_results,
+          file.path(AIM2_RESULTS_DIR, "tfidf_top_terms.csv"))
+cat("TF-IDF results saved\n\n")
+
+# ==============================================================================
+# PART 5: VISUALIZATIONS
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 5: Creating Visualizations\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+# 1. Word Clouds
+cat("Creating word clouds...\n")
+
+# Word cloud for ADRD
+png(file.path(AIM2_FIGURES_DIR, "wordcloud_adrd.png"),
+    width = 10, height = 10, units = "in", res = 300)
+textplot_wordcloud(adrd_dfm_grouped[docid(adrd_dfm_grouped) == "ADRD", ],
+                  min_count = MIN_TERM_FREQ,
+                  max_words = 100,
+                  color = brewer.pal(8, "Dark2"),
+                  rotation = 0.25)
+title("Most Frequent Terms in ADRD Notes", cex.main = 1.5)
+dev.off()
+
+# Word cloud for CTRL
+png(file.path(AIM2_FIGURES_DIR, "wordcloud_ctrl.png"),
+    width = 10, height = 10, units = "in", res = 300)
+textplot_wordcloud(adrd_dfm_grouped[docid(adrd_dfm_grouped) == "CTRL", ],
+                  min_count = MIN_TERM_FREQ,
+                  max_words = 100,
+                  color = brewer.pal(8, "Set2"),
+                  rotation = 0.25)
+title("Most Frequent Terms in Control Notes", cex.main = 1.5)
+dev.off()
+
+cat("  Word clouds saved\n")
+
+# 2. Top Terms Bar Plot
+cat("Creating top terms bar plot...\n")
+
+plot_data <- bind_rows(
+  term_freq_by_class %>%
+    filter(group == "ADRD") %>%
+    arrange(desc(frequency)) %>%
+    head(20) %>%
+    mutate(class = "ADRD"),
+  term_freq_by_class %>%
+    filter(group == "CTRL") %>%
+    arrange(desc(frequency)) %>%
+    head(20) %>%
+    mutate(class = "CTRL")
+)
+
+top_terms_plot <- ggplot(plot_data,
+                         aes(x = reorder(feature, frequency),
+                             y = frequency, fill = class)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~class, scales = "free") +
+  coord_flip() +
+  scale_fill_manual(values = c("ADRD" = "#E74C3C", "CTRL" = "#3498DB")) +
+  labs(
+    title = "Top 20 Most Frequent Terms by Class",
+    x = "Term",
+    y = "Frequency",
+    fill = "Class"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12, face = "bold"),
+    strip.text = element_text(size = 12, face = "bold"),
+    strip.background = element_rect(fill = "lightgray"),
+    legend.position = "none"
+  )
+
+ggsave(file.path(AIM2_FIGURES_DIR, "top_terms_by_class.png"),
+       plot = top_terms_plot, width = 14, height = 8, dpi = 300)
+cat("  Top terms plot saved\n")
+
+# 3. Chi-Squared Plot
+cat("Creating chi-squared keyness plot...\n")
+
+chi2_plot_data <- bind_rows(
+  chi2_results %>%
+    filter(chi2 > 0, significant) %>%
+    arrange(desc(chi2)) %>%
+    head(20) %>%
+    mutate(direction = "Overrepresented in ADRD"),
+  chi2_results %>%
+    filter(chi2 < 0, significant) %>%
+    arrange(chi2) %>%
+    head(20) %>%
+    mutate(direction = "Overrepresented in CTRL")
+)
+
+if (nrow(chi2_plot_data) > 0) {
+  chi2_keyness_plot <- ggplot(chi2_plot_data,
+                               aes(x = reorder(feature, chi2),
+                                   y = chi2, fill = direction)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    scale_fill_manual(values = c(
+      "Overrepresented in ADRD" = "#E74C3C",
+      "Overrepresented in CTRL" = "#3498DB"
+    )) +
+    labs(
+      title = "Top Discriminative Terms (χ² Test)",
+      subtitle = sprintf("FDR < %.2f", CHI_SQUARE_ALPHA),
+      x = "Term",
+      y = "χ² Statistic",
+      fill = "Direction"
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5),
+      axis.text = element_text(size = 10),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.position = "bottom"
+    )
+
+  ggsave(file.path(AIM2_FIGURES_DIR, "chi_squared_keyness.png"),
+         plot = chi2_keyness_plot, width = 12, height = 10, dpi = 300)
+  cat("  Chi-squared plot saved\n")
+} else {
+  cat("  WARNING: No significant terms found for chi-squared plot\n")
+}
+
+# 4. TF-IDF Comparison Plot
+cat("Creating TF-IDF comparison plot...\n")
+
+tfidf_plot_data <- data.frame(
+  term = c(names(head(top_tfidf_adrd, 20)), names(head(top_tfidf_ctrl, 20))),
+  tfidf = c(as.numeric(head(top_tfidf_adrd, 20)),
+            as.numeric(head(top_tfidf_ctrl, 20))),
+  class = c(rep("ADRD", 20), rep("CTRL", 20))
+)
+
+tfidf_plot <- ggplot(tfidf_plot_data,
+                     aes(x = reorder(term, tfidf), y = tfidf, fill = class)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~class, scales = "free") +
+  coord_flip() +
+  scale_fill_manual(values = c("ADRD" = "#E74C3C", "CTRL" = "#3498DB")) +
+  labs(
+    title = "Top 20 TF-IDF Terms by Class",
+    x = "Term",
+    y = "TF-IDF Weight",
+    fill = "Class"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12, face = "bold"),
+    strip.text = element_text(size = 12, face = "bold"),
+    strip.background = element_rect(fill = "lightgray"),
+    legend.position = "none"
+  )
+
+ggsave(file.path(AIM2_FIGURES_DIR, "tfidf_comparison.png"),
+       plot = tfidf_plot, width = 14, height = 8, dpi = 300)
+cat("  TF-IDF plot saved\n\n")
+
+# ==============================================================================
+# PART 6: LIME EXPLAINABILITY (Foundation)
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 6: LIME Explainability Framework (Foundation)\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("NOTE: Full LIME implementation requires the `lime` R package\n")
+cat("This section provides the foundation for LIME analysis\n\n")
+
+# Check if lime package is available
+if (requireNamespace("lime", quietly = TRUE)) {
+  cat("lime package detected - LIME analysis can be performed\n")
+  cat("See STATISTICAL_SIGNIFICANCE_METHODOLOGY.md for implementation guide\n\n")
+} else {
+  cat("lime package not installed\n")
+  cat("To enable LIME analysis, run: install.packages('lime')\n\n")
+}
+
+# Sample predictions for LIME analysis
+if (!is.null(predictions)) {
+  cat("Selecting samples for LIME analysis...\n")
+
+  # Select interesting cases for explanation
+  lime_samples <- predictions %>%
+    mutate(
+      correct = Correct,
+      prob = Predicted_Probability,
+      true_label = Label
+    ) %>%
+    group_by(true_label, correct) %>%
+    arrange(desc(abs(prob - 0.5))) %>%  # Most confident predictions
+    slice_head(n = 5) %>%
+    ungroup()
+
+  cat("  Selected", nrow(lime_samples), "samples for explanation:\n")
+  cat("    True ADRD, Correct:", sum(lime_samples$true_label == 1 & lime_samples$correct), "\n")
+  cat("    True ADRD, Incorrect:", sum(lime_samples$true_label == 1 & !lime_samples$correct), "\n")
+  cat("    True CTRL, Correct:", sum(lime_samples$true_label == 0 & lime_samples$correct), "\n")
+  cat("    True CTRL, Incorrect:", sum(lime_samples$true_label == 0 & !lime_samples$correct), "\n\n")
+
+  # Save sample IDs for LIME analysis
+  write_csv(lime_samples %>% select(DE_ID, Label, Predicted_Probability, Correct),
+            file.path(AIM2_RESULTS_DIR, "lime_sample_cases.csv"))
+  cat("Sample cases for LIME saved\n\n")
+
+} else {
+  cat("Predictions not available - skipping LIME sample selection\n\n")
+}
+
+# ==============================================================================
+# PART 6B: LIME EXPLAINABILITY (FULL IMPLEMENTATION)
+# ==============================================================================
+
+if (!is.null(predictions) && requireNamespace("lime", quietly = TRUE)) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("PART 6B: LIME Explainability - Full Implementation\n")
+  cat(strrep("=", 80) %+% "\n\n")
+
+  library(lime)
+
+  cat("Loading trained model for LIME...\n")
+  source("utils_model_loader.R")
+
+  artifacts <- load_all_artifacts(MODEL_DIR)
+
+  # Find best model
+  best_info_file <- file.path(RESULTS_DIR, "best_model_info.rds")
+  if (file.exists(best_info_file)) {
+    best_info <- readRDS(best_info_file)
+    best_cycle <- best_info$best_cycle
+  } else {
+    best_cycle <- 1  # Default to first model
+  }
+
+  cat("Loading model cycle", best_cycle, "...\n")
+  model <- load_model_auto(best_cycle, MODEL_DIR)
+
+  # Create prediction function for LIME
+  predict_fun <- function(texts) {
+    # Tokenize
+    sequences <- texts_to_sequences(artifacts$tokenizer, texts)
+    # Pad
+    padded <- pad_sequences(sequences, maxlen = artifacts$maxlen, padding = "pre")
+    # Predict
+    preds <- model %>% predict(padded, verbose = 0)
+    # Return probabilities for both classes
+    cbind(1 - preds[, 1], preds[, 1])
+  }
+
+  # Create LIME explainer
+  cat("Creating LIME explainer...\n")
+  explainer <- lime(
+    test_set$txt,
+    model = predict_fun,
+    preprocess = tolower  # Simple preprocessing
+  )
+
+  # Select samples for explanation
+  lime_cases <- lime_samples %>%
+    left_join(test_set %>% select(DE_ID, txt), by = "DE_ID")
+
+  cat("Generating LIME explanations for", nrow(lime_cases), "cases...\n")
+
+  explanations <- explain(
+    lime_cases$txt,
+    explainer,
+    n_labels = 1,  # Explain ADRD class
+    n_features = 10,  # Top 10 features
+    n_permutations = 1000
+  )
+
+  # Save explanations
+  write_csv(explanations,
+            file.path(AIM2_RESULTS_DIR, "lime_explanations.csv"))
+  cat("LIME explanations saved\n")
+
+  # Create LIME visualization
+  cat("Creating LIME visualization...\n")
+
+  png(file.path(AIM2_FIGURES_DIR, "lime_explanations.png"),
+      width = 14, height = 10, units = "in", res = 300)
+  plot_features(explanations)
+  dev.off()
+
+  cat("LIME visualization saved\n\n")
+
+} else if (is.null(predictions)) {
+  cat("\nPredictions not available - skipping LIME\n\n")
+} else {
+  cat("\nLIME package not installed. To enable:\n")
+  cat("  install.packages('lime')\n\n")
+}
+
+# ==============================================================================
+# PART 7: BEHAVIORAL TESTING FRAMEWORK
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 7: Behavioral Testing Framework\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Behavioral testing analyzes model sensitivity to specific terms\n")
+cat("by removing discriminative terms and measuring prediction changes.\n\n")
+
+# Select top discriminative terms for behavioral testing
+behavioral_test_terms <- list()
+
+# Top 10 ADRD terms
+if (nrow(top_adrd_terms) > 0) {
+  behavioral_test_terms$adrd <- head(top_adrd_terms$feature, 10)
+}
+
+# Top 10 CTRL terms
+if (nrow(top_ctrl_terms) > 0) {
+  behavioral_test_terms$ctrl <- head(top_ctrl_terms$feature, 10)
+}
+
+cat("Selected terms for behavioral testing:\n")
+cat("  ADRD terms:", length(behavioral_test_terms$adrd), "\n")
+cat("  CTRL terms:", length(behavioral_test_terms$ctrl), "\n\n")
+
+# Save behavioral test terms
+saveRDS(behavioral_test_terms,
+        file.path(AIM2_RESULTS_DIR, "behavioral_test_terms.rds"))
+
+# Create behavioral testing function
+create_behavioral_test <- function(original_text, term_to_remove) {
+  #' Remove a term from text and return modified version
+  #'
+  #' @param original_text Original clinical note
+  #' @param term_to_remove Term to remove
+  #' @return Modified text with term removed
+
+  # Simple removal (can be enhanced with synonyms, etc.)
+  modified_text <- gsub(
+    paste0("\\b", term_to_remove, "\\b"),
+    "",  # Replace with empty
+    original_text,
+    ignore.case = TRUE
+  )
+
+  # Clean up extra spaces
+  modified_text <- gsub("\\s+", " ", modified_text)
+  modified_text <- trimws(modified_text)
+
+  return(modified_text)
+}
+
+# Demonstrate behavioral testing on sample cases
+if (!is.null(predictions) && file.exists(file.path(AIM2_RESULTS_DIR, "lime_sample_cases.csv"))) {
+  cat("Demonstrating behavioral testing on sample cases...\n")
+
+  # Load sample cases
+  sample_cases <- read_csv(file.path(AIM2_RESULTS_DIR, "lime_sample_cases.csv"),
+                           show_col_types = FALSE)
+
+  # Select one ADRD case for demonstration
+  demo_case <- sample_cases %>%
+    filter(Label == 1) %>%
+    slice_head(n = 1)
+
+  if (nrow(demo_case) > 0) {
+    # Get original text
+    original_text <- test_set %>%
+      filter(DE_ID == demo_case$DE_ID) %>%
+      pull(txt)
+
+    if (length(original_text) > 0) {
+      cat("\nBehavioral Test Demonstration:\n")
+      cat("Original prediction:", sprintf("%.4f", demo_case$Predicted_Probability), "\n")
+
+      # Test removal of each ADRD term
+      behavioral_results <- data.frame(
+        term_removed = character(),
+        term_present = logical(),
+        prediction_change = numeric(),
+        stringsAsFactors = FALSE
+      )
+
+      for (term in behavioral_test_terms$adrd[1:5]) {  # Test first 5 terms
+        # Check if term is present
+        term_present <- grepl(paste0("\\b", term, "\\b"), original_text, ignore.case = TRUE)
+
+        if (term_present) {
+          # Create modified text
+          modified_text <- create_behavioral_test(original_text, term)
+
+          # Get prediction if model loaded
+          if (exists("model") && exists("artifacts")) {
+            # Tokenize and predict
+            seq_orig <- texts_to_sequences(artifacts$tokenizer, original_text)
+            seq_mod <- texts_to_sequences(artifacts$tokenizer, modified_text)
+
+            pad_orig <- pad_sequences(seq_orig, maxlen = artifacts$maxlen, padding = "pre")
+            pad_mod <- pad_sequences(seq_mod, maxlen = artifacts$maxlen, padding = "pre")
+
+            pred_orig <- model %>% predict(pad_orig, verbose = 0)
+            pred_mod <- model %>% predict(pad_mod, verbose = 0)
+
+            pred_change <- pred_mod[1, 1] - pred_orig[1, 1]
+
+            behavioral_results <- rbind(behavioral_results, data.frame(
+              term_removed = term,
+              term_present = TRUE,
+              prediction_change = pred_change
+            ))
+
+            cat("  Term '", term, "': Δ prediction = ", sprintf("%.4f", pred_change), "\n", sep = "")
+          }
+        } else {
+          behavioral_results <- rbind(behavioral_results, data.frame(
+            term_removed = term,
+            term_present = FALSE,
+            prediction_change = NA
+          ))
+        }
+      }
+
+      # Save behavioral test results
+      write_csv(behavioral_results,
+                file.path(AIM2_RESULTS_DIR, "behavioral_test_demo_results.csv"))
+      cat("\nBehavioral test demonstration results saved\n")
+    }
+  }
+  cat("\n")
+}
+
+# Create behavioral testing script template
+cat("Creating behavioral testing script template...\n")
+
+behavioral_script <- '# Behavioral Testing Script Template
+# ==============================================================================
+# Purpose: Systematically test model sensitivity to specific terms
+#
+# Usage:
+#   1. Select terms from behavioral_test_terms.rds
+#   2. For each term, create modified versions of test cases
+#   3. Compare predictions on original vs modified texts
+#   4. Measure sensitivity (Δ prediction)
+# ==============================================================================
+
+# Load terms
+behavioral_test_terms <- readRDS("results/aim2/behavioral_test_terms.rds")
+
+# Load model and artifacts
+source("utils_model_loader.R")
+artifacts <- load_all_artifacts("models")
+best_cycle <- 1  # Update with your best model cycle
+model <- load_model_auto(best_cycle, "models")
+
+# Load test set
+test_set <- readRDS("data/test_set.rds")
+
+# Function to test term removal
+test_term_removal <- function(de_id, term, model, artifacts, test_set) {
+  # Get original text
+  original_text <- test_set %>%
+    filter(DE_ID == de_id) %>%
+    pull(txt)
+
+  # Check if term present
+  term_present <- grepl(paste0("\\\\b", term, "\\\\b"), original_text, ignore.case = TRUE)
+
+  if (!term_present) {
+    return(list(term_present = FALSE, pred_change = NA))
+  }
+
+  # Remove term
+  modified_text <- gsub(paste0("\\\\b", term, "\\\\b"), "", original_text, ignore.case = TRUE)
+  modified_text <- gsub("\\\\s+", " ", trimws(modified_text))
+
+  # Get predictions
+  seq_orig <- texts_to_sequences(artifacts$tokenizer, original_text)
+  seq_mod <- texts_to_sequences(artifacts$tokenizer, modified_text)
+
+  pad_orig <- pad_sequences(seq_orig, maxlen = artifacts$maxlen, padding = "pre")
+  pad_mod <- pad_sequences(seq_mod, maxlen = artifacts$maxlen, padding = "pre")
+
+  pred_orig <- model %>% predict(pad_orig, verbose = 0)
+  pred_mod <- model %>% predict(pad_mod, verbose = 0)
+
+  pred_change <- pred_mod[1, 1] - pred_orig[1, 1]
+
+  return(list(
+    term_present = TRUE,
+    pred_orig = pred_orig[1, 1],
+    pred_mod = pred_mod[1, 1],
+    pred_change = pred_change
+  ))
+}
+
+# Run behavioral tests
+# Example: Test all ADRD terms on all ADRD cases
+results <- data.frame()
+
+for (term in behavioral_test_terms$adrd) {
+  adrd_cases <- test_set %>% filter(label == 1)
+
+  for (de_id in adrd_cases$DE_ID[1:min(50, nrow(adrd_cases))]) {
+    result <- test_term_removal(de_id, term, model, artifacts, test_set)
+
+    if (result$term_present) {
+      results <- rbind(results, data.frame(
+        DE_ID = de_id,
+        term = term,
+        pred_change = result$pred_change
+      ))
+    }
+  }
+}
+
+# Analyze results
+summary(results$pred_change)
+'
+
+writeLines(behavioral_script,
+           file.path(AIM2_RESULTS_DIR, "behavioral_testing_template.R"))
+cat("Behavioral testing template saved\n\n")
+
+# ==============================================================================
+# PART 8: SUMMARY REPORT
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("Creating Summary Report\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+report_file <- file.path(AIM2_RESULTS_DIR, "aim2_feature_analysis_report.txt")
+sink(report_file)
+
+cat("ADRD ePhenotyping - AIM 2: Feature Analysis Report\n")
+cat(strrep("=", 80), "\n\n")
+cat("Date:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n\n")
+
+cat("CORPUS STATISTICS\n")
+cat(strrep("-", 40), "\n")
+cat("Total documents:", nrow(full_corpus), "\n")
+cat("ADRD documents:", sum(full_corpus$label == 1),
+    sprintf("(%.1f%%)\n", mean(full_corpus$label == 1) * 100))
+cat("Control documents:", sum(full_corpus$label == 0),
+    sprintf("(%.1f%%)\n", mean(full_corpus$label == 0) * 100))
+cat("Unique features (after trimming):", nfeat(adrd_dfm_trimmed), "\n")
+cat("Min term frequency threshold:", MIN_TERM_FREQ, "\n\n")
+
+cat("CHI-SQUARED TEST RESULTS\n")
+cat(strrep("-", 40), "\n")
+cat("Features tested:", nrow(chi2_results), "\n")
+cat("Significant features (FDR < ", CHI_SQUARE_ALPHA, "): ",
+    sum(chi2_results$significant, na.rm = TRUE), "\n", sep = "")
+cat("  Overrepresented in ADRD:",
+    sum(chi2_results$chi2 > 0 & chi2_results$significant, na.rm = TRUE), "\n")
+cat("  Overrepresented in CTRL:",
+    sum(chi2_results$chi2 < 0 & chi2_results$significant, na.rm = TRUE), "\n\n")
+
+cat("TOP 20 DISCRIMINATIVE TERMS FOR ADRD\n")
+cat(strrep("-", 40), "\n")
+if (nrow(top_adrd_terms) > 0) {
+  print(head(top_adrd_terms %>%
+               select(feature, chi2, p_adjusted), 20))
+} else {
+  cat("No significant terms found\n")
+}
+cat("\n")
+
+cat("TOP 20 DISCRIMINATIVE TERMS FOR CTRL\n")
+cat(strrep("-", 40), "\n")
+if (nrow(top_ctrl_terms) > 0) {
+  print(head(top_ctrl_terms %>%
+               select(feature, chi2, p_adjusted), 20))
+} else {
+  cat("No significant terms found\n")
+}
+cat("\n")
+
+cat("TF-IDF TOP TERMS\n")
+cat(strrep("-", 40), "\n")
+cat("ADRD:\n")
+print(head(top_tfidf_adrd, 20))
+cat("\nCTRL:\n")
+print(head(top_tfidf_ctrl, 20))
+cat("\n")
+
+cat("OUTPUT FILES\n")
+cat(strrep("-", 40), "\n")
+cat("Results directory:", AIM2_RESULTS_DIR, "/\n")
+cat("Figures directory:", AIM2_FIGURES_DIR, "/\n\n")
+
+cat("Generated files:\n")
+cat("  - term_frequencies_overall.csv\n")
+cat("  - term_frequencies_by_class.csv\n")
+cat("  - chi_squared_results.csv\n")
+cat("  - discriminative_terms.xlsx\n")
+cat("  - tfidf_top_terms.csv\n")
+cat("  - lime_sample_cases.csv\n")
+cat("  - wordcloud_adrd.png\n")
+cat("  - wordcloud_ctrl.png\n")
+cat("  - top_terms_by_class.png\n")
+cat("  - chi_squared_keyness.png\n")
+cat("  - tfidf_comparison.png\n\n")
+
+cat("NEXT STEPS\n")
+cat(strrep("-", 40), "\n")
+cat("1. Review discriminative terms for clinical relevance\n")
+cat("2. Consult subject matter experts to classify terms\n")
+cat("3. Implement full LIME analysis (requires lime package)\n")
+cat("4. Conduct behavioral testing with identified terms\n")
+cat("5. Validate findings with external dataset\n")
+
+sink()
+
+cat("Report saved:", report_file, "\n\n")
+
+# Final Summary ===============================================================
+cat(strrep("=", 80) %+% "\n")
+cat("AIM 2 FEATURE ANALYSIS COMPLETE\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Summary:\n")
+cat("  Corpus size:", nrow(full_corpus), "documents\n")
+cat("  Unique features:", nfeat(adrd_dfm_trimmed), "\n")
+cat("  Significant terms:", sum(chi2_results$significant, na.rm = TRUE), "\n")
+cat("  Visualizations created: 5\n\n")
+
+cat("Key Findings:\n")
+cat("  Top ADRD term:", ifelse(nrow(top_adrd_terms) > 0,
+                                top_adrd_terms$feature[1], "N/A"), "\n")
+cat("  Top CTRL term:", ifelse(nrow(top_ctrl_terms) > 0,
+                                top_ctrl_terms$feature[1], "N/A"), "\n\n")
+
+cat("Output Directories:\n")
+cat("  Results:", AIM2_RESULTS_DIR, "/\n")
+cat("  Figures:", AIM2_FIGURES_DIR, "/\n\n")
+
+cat("Next Steps:\n")
+cat("  1. Review discriminative_terms.xlsx for clinical relevance\n")
+cat("  2. Examine word clouds and plots\n")
+cat("  3. Install 'lime' package for explainability: install.packages('lime')\n")
+cat("  4. Consult STATISTICAL_SIGNIFICANCE_METHODOLOGY.md for LIME implementation\n")
+cat("  5. Prepare behavioral testing scenarios\n\n")
+
+cat(strrep("=", 80) %+% "\n")
+cat("Analysis completed successfully!\n")
+cat(strrep("=", 80) %+% "\n")
