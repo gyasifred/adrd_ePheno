@@ -1,0 +1,843 @@
+#!/usr/bin/env Rscript
+# ==============================================================================
+# ADRD ePhenotyping Pipeline - Demographic Performance Analysis (FIXED)
+# ==============================================================================
+# Project: adrd_ephenotyping
+# Aim 1: Evaluate model performance differences between demographic groups
+#
+# Purpose: Analyze CNN model performance across:
+#   - Demographics (Gender, Race, Ethnicity, Age)
+#   - Social Determinants (Insurance/Financial class if available)
+#   - Intersectional groups (e.g., Gender x Race)
+#   - Detect potential bias or fairness issues
+#
+# FIXES:
+# - Correct column names from predictions_df.csv
+# - Proper data loading and merging
+# - Fixed text wrapping for long categorical names
+# - Simplified analysis flow
+#
+# Inputs:  data/test_set.rds, results/predictions_df.csv
+# Outputs: results/demographic/*, figures/demographic/*
+# ==============================================================================
+
+# Define operators FIRST
+`%+%` <- function(a, b) paste0(a, b)
+
+# Load Libraries ==============================================================
+cat(strrep("=", 80) %+% "\n")
+cat("ADRD ePhenotyping - Demographic Performance Analysis\n")
+cat("Aim 1: Subgroup Performance Evaluation\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Loading required libraries...\n")
+suppressPackageStartupMessages({
+  library(tidyverse)    # Data manipulation
+  library(pROC)         # ROC analysis
+  library(ggplot2)      # Visualization
+  library(gridExtra)    # Multiple plots
+  library(scales)       # Plot formatting
+  library(writexl)      # Excel export
+  library(broom)        # Statistical tests
+  library(stringr)      # String manipulation
+})
+
+options(dplyr.summarise.inform = FALSE)
+
+# Configuration ===============================================================
+cat("\nConfiguration:\n")
+cat(strrep("-", 80) %+% "\n")
+
+# Paths
+DATA_DIR <- "data"
+RESULTS_DIR <- "results"
+FIGURES_DIR <- "figures"
+
+# Create subdirectories for demographic results
+DEMO_RESULTS_DIR <- file.path(RESULTS_DIR, "demographic")
+DEMO_FIGURES_DIR <- file.path(FIGURES_DIR, "demographic")
+dir.create(DEMO_RESULTS_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(DEMO_FIGURES_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# Analysis parameters
+OPTIMAL_THRESHOLD <- 0.5        # Classification threshold
+CONFIDENCE_LEVEL <- 0.95        # For confidence intervals
+MIN_SUBGROUP_SIZE <- 10         # Minimum samples for subgroup analysis
+
+cat("  Classification threshold:", OPTIMAL_THRESHOLD, "\n")
+cat("  Confidence level:", CONFIDENCE_LEVEL, "\n")
+cat("  Minimum subgroup size:", MIN_SUBGROUP_SIZE, "\n\n")
+
+# Helper Functions ============================================================
+
+# Simplify long categorical names for display purposes
+simplify_category_name <- function(full_name) {
+  # Handle NA
+  if (is.na(full_name)) return("Unknown")
+  
+  # Convert to character
+  full_name <- as.character(full_name)
+  
+  # RACE simplifications
+  race_map <- c(
+    "WHITE OR CAUCASIAN" = "White",
+    "BLACK OR AFRICAN AMERICAN" = "Black",
+    "OTHER ASIAN" = "Asian",
+    "AMERICAN INDIAN OR ALASKA NATIVE" = "Am. Indian/AK Native",
+    "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER" = "Pacific Islander",
+    "OTHER" = "Other",
+    "UNKNOWN" = "Unknown",
+    "PATIENT REFUSED" = "Refused"
+  )
+  
+  # HISPANIC simplifications
+  hispanic_map <- c(
+    "NO, NOT HISPANIC OR LATINO" = "Non-Hispanic",
+    "YES, ANOTHER HISPANIC OR LATINO" = "Hispanic",
+    "YES, HISPANIC OR LATINO" = "Hispanic",
+    "UNKNOWN" = "Unknown",
+    "PATIENT REFUSED" = "Refused"
+  )
+  
+  # Try race mapping
+  if (full_name %in% names(race_map)) {
+    return(race_map[full_name])
+  }
+  
+  # Try hispanic mapping
+  if (full_name %in% names(hispanic_map)) {
+    return(hispanic_map[full_name])
+  }
+  
+  # If no mapping found, try to shorten intelligently
+  if (nchar(full_name) > 25) {
+    # Take first 3 words
+    words <- unlist(strsplit(full_name, " "))
+    if (length(words) > 3) {
+      return(paste(words[1:3], collapse = " "))
+    }
+  }
+  
+  return(full_name)
+}
+
+# Wrap long text for plot labels
+wrap_text <- function(text, width = 20) {
+  sapply(text, function(x) {
+    if (is.na(x)) return("Unknown")
+    x <- as.character(x)
+    # Use simplified name if available
+    x <- simplify_category_name(x)
+    # Wrap if still too long
+    if (nchar(x) > width) {
+      paste(strwrap(x, width = width), collapse = "\n")
+    } else {
+      x
+    }
+  }, USE.NAMES = FALSE)
+}
+
+# Calculate comprehensive metrics for a demographic subgroup
+calculate_subgroup_metrics <- function(y_true, y_pred_prob, 
+                                      threshold = 0.5,
+                                      conf_level = 0.95) {
+  # Skip if too few samples
+  if (length(y_true) < MIN_SUBGROUP_SIZE) {
+    return(NULL)
+  }
+  
+  y_pred_class <- ifelse(y_pred_prob >= threshold, 1, 0)
+  
+  # Confusion matrix
+  tp <- sum(y_true == 1 & y_pred_class == 1)
+  tn <- sum(y_true == 0 & y_pred_class == 0)
+  fp <- sum(y_true == 0 & y_pred_class == 1)
+  fn <- sum(y_true == 1 & y_pred_class == 0)
+  
+  # Basic metrics
+  n <- length(y_true)
+  n_pos <- sum(y_true == 1)
+  n_neg <- sum(y_true == 0)
+  
+  accuracy <- (tp + tn) / n
+  sensitivity <- ifelse(n_pos > 0, tp / (tp + fn), NA)
+  specificity <- ifelse(n_neg > 0, tn / (tn + fp), NA)
+  precision <- ifelse((tp + fp) > 0, tp / (tp + fp), NA)
+  npv <- ifelse((tn + fn) > 0, tn / (tn + fn), NA)
+  f1 <- ifelse(!is.na(precision) & !is.na(sensitivity) & 
+               (precision + sensitivity) > 0,
+               2 * (precision * sensitivity) / (precision + sensitivity), NA)
+  
+  # Positive prediction rate (for fairness metrics)
+  ppr <- (tp + fp) / n
+  
+  # ROC and AUC
+  tryCatch({
+    roc_obj <- roc(y_true, y_pred_prob, 
+                   levels = c(0, 1), 
+                   direction = "<", 
+                   quiet = TRUE)
+    
+    auc <- as.numeric(roc_obj$auc)
+    auc_ci <- ci.auc(roc_obj, conf.level = conf_level)
+    
+    return(list(
+      n = n,
+      n_pos = n_pos,
+      n_neg = n_neg,
+      tp = tp, tn = tn, fp = fp, fn = fn,
+      accuracy = accuracy,
+      sensitivity = sensitivity,
+      specificity = specificity,
+      precision = precision,
+      npv = npv,
+      f1 = f1,
+      ppr = ppr,
+      auc = auc,
+      auc_ci_lower = auc_ci[1],
+      auc_ci_upper = auc_ci[3]
+    ))
+  }, error = function(e) {
+    # If ROC fails, return metrics without AUC
+    return(list(
+      n = n,
+      n_pos = n_pos,
+      n_neg = n_neg,
+      tp = tp, tn = tn, fp = fp, fn = fn,
+      accuracy = accuracy,
+      sensitivity = sensitivity,
+      specificity = specificity,
+      precision = precision,
+      npv = npv,
+      f1 = f1,
+      ppr = ppr,
+      auc = NA,
+      auc_ci_lower = NA,
+      auc_ci_upper = NA
+    ))
+  })
+}
+
+# Load Data ===================================================================
+cat(strrep("=", 80) %+% "\n")
+cat("Loading Data\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+# Load test set
+test_file <- file.path(DATA_DIR, "test_set.rds")
+if (!file.exists(test_file)) {
+  stop("Test data not found: ", test_file, 
+       "\nPlease run 01_prepare_data.R first!")
+}
+
+test_set <- readRDS(test_file)
+cat("Test set loaded:", nrow(test_set), "samples\n")
+
+# Verify required columns
+if (!"label" %in% names(test_set)) {
+  stop("Column 'label' not found in test set!")
+}
+
+# Load predictions from evaluation script
+pred_file <- file.path(RESULTS_DIR, "predictions_df.csv")
+if (!file.exists(pred_file)) {
+  stop("Predictions file not found: ", pred_file, 
+       "\nPlease run 03_evaluate_models.R first!")
+}
+
+predictions <- read_csv(pred_file, show_col_types = FALSE)
+cat("Predictions loaded:", nrow(predictions), "samples\n")
+
+# Check column names in predictions
+cat("\nPredictions file columns:\n")
+cat("  ", paste(names(predictions), collapse = ", "), "\n\n")
+
+# Merge test set with predictions
+# Note: predictions_df.csv already has demographics if they were in test_set
+# We'll use predictions as the primary source
+analysis_data <- predictions %>%
+  rename(
+    true_label = Label,           # Label column from predictions (numeric 0/1)
+    predicted_prob = Predicted_Probability,
+    predicted_class = Predicted_Class
+  ) %>%
+  mutate(
+    true_label = as.numeric(true_label)  # Ensure numeric
+  )
+
+cat("Analysis dataset prepared:", nrow(analysis_data), "samples\n")
+
+# Check for available demographic variables
+available_demos <- c()
+for (demo in c("GENDER", "RACE", "HISPANIC")) {
+  if (demo %in% names(analysis_data)) {
+    n_unique <- n_distinct(analysis_data[[demo]], na.rm = TRUE)
+    n_valid <- sum(!is.na(analysis_data[[demo]]) & 
+                   analysis_data[[demo]] != "" & 
+                   analysis_data[[demo]] != "UNKNOWN")
+    cat("  ", demo, ": ", n_unique, " unique values, ", n_valid, " valid\n", sep = "")
+    available_demos <- c(available_demos, demo)
+  }
+}
+cat("\n")
+
+if (length(available_demos) == 0) {
+  stop("No demographic variables found!\n",
+       "Required: at least one of GENDER, RACE, HISPANIC in predictions file")
+}
+
+# Display category examples
+cat("Categorical value examples:\n")
+for (demo in available_demos) {
+  unique_vals <- unique(na.omit(analysis_data[[demo]]))
+  unique_vals <- unique_vals[unique_vals != "" & unique_vals != "UNKNOWN"]
+  if (length(unique_vals) > 0 && length(unique_vals) <= 10) {
+    cat("  ", demo, ":\n", sep = "")
+    for (val in head(unique_vals, 5)) {
+      val_char <- as.character(val)
+      simplified <- simplify_category_name(val_char)
+      if (nchar(val_char) > 25) {
+        cat("    '", val_char, "' → '", simplified, "'\n", sep = "")
+      } else {
+        cat("    '", val_char, "'\n", sep = "")
+      }
+    }
+  }
+}
+cat("\n")
+
+# Overall Performance =========================================================
+cat(strrep("=", 80) %+% "\n")
+cat("Overall Performance (Baseline)\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+overall_metrics <- calculate_subgroup_metrics(
+  analysis_data$true_label,
+  analysis_data$predicted_prob,
+  threshold = OPTIMAL_THRESHOLD,
+  conf_level = CONFIDENCE_LEVEL
+)
+
+cat("Overall Test Set Performance:\n")
+cat(strrep("-", 40), "\n")
+cat("  N:", overall_metrics$n, "\n")
+cat("  ADRD cases:", overall_metrics$n_pos, 
+    sprintf("(%.1f%%)\n", overall_metrics$n_pos / overall_metrics$n * 100))
+cat("  Control cases:", overall_metrics$n_neg,
+    sprintf("(%.1f%%)\n", overall_metrics$n_neg / overall_metrics$n * 100))
+cat("  AUC:", sprintf("%.4f", overall_metrics$auc))
+if (!is.na(overall_metrics$auc_ci_lower)) {
+  cat(sprintf(" (95%% CI: %.4f-%.4f)", 
+              overall_metrics$auc_ci_lower, overall_metrics$auc_ci_upper))
+}
+cat("\n")
+cat("  Accuracy:", sprintf("%.4f", overall_metrics$accuracy), "\n")
+cat("  Sensitivity:", sprintf("%.4f", overall_metrics$sensitivity), "\n")
+cat("  Specificity:", sprintf("%.4f", overall_metrics$specificity), "\n")
+cat("  F1 Score:", sprintf("%.4f", overall_metrics$f1), "\n\n")
+
+# Gender Analysis =============================================================
+if ("GENDER" %in% available_demos) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("Gender-Stratified Analysis\n")
+  cat(strrep("=", 80) %+% "\n\n")
+  
+  # Show distribution
+  gender_results <- analysis_data %>%
+    filter(!is.na(GENDER), GENDER != "", GENDER != "UNKNOWN") %>%
+    group_by(GENDER) %>%
+    summarise(
+      N = n(),
+      N_ADRD = sum(true_label == 1),
+      N_CTRL = sum(true_label == 0),
+      .groups = "drop"
+    )
+  
+  cat("Gender distribution:\n")
+  print(gender_results)
+  cat("\n")
+  
+  # Calculate metrics for each gender
+  gender_metrics_list <- list()
+  
+  for (gender in unique(analysis_data$GENDER[!is.na(analysis_data$GENDER)])) {
+    if (gender == "" || is.na(gender) || gender == "UNKNOWN") next
+    
+    subset_data <- analysis_data %>% filter(GENDER == gender)
+    
+    if (nrow(subset_data) < MIN_SUBGROUP_SIZE) {
+      cat("  Skipping", gender, "(N =", nrow(subset_data), "<", MIN_SUBGROUP_SIZE, ")\n")
+      next
+    }
+    
+    metrics <- calculate_subgroup_metrics(
+      subset_data$true_label,
+      subset_data$predicted_prob,
+      threshold = OPTIMAL_THRESHOLD,
+      conf_level = CONFIDENCE_LEVEL
+    )
+    
+    if (!is.null(metrics)) {
+      metrics$subgroup <- "Gender"
+      metrics$category <- as.character(gender)
+      metrics$category_short <- simplify_category_name(gender)
+      gender_metrics_list[[as.character(gender)]] <- metrics
+      
+      cat(gender, ":\n")
+      cat("  N:", metrics$n, 
+          sprintf("(ADRD: %d, CTRL: %d)", metrics$n_pos, metrics$n_neg), "\n")
+      cat("  AUC:", sprintf("%.4f", metrics$auc), "\n")
+      cat("  Accuracy:", sprintf("%.4f", metrics$accuracy), "\n")
+      cat("  Sensitivity:", sprintf("%.4f", metrics$sensitivity), "\n")
+      cat("  Specificity:", sprintf("%.4f", metrics$specificity), "\n")
+      cat("  F1:", sprintf("%.4f", metrics$f1), "\n\n")
+    }
+  }
+  
+  # Compare genders
+  if (length(gender_metrics_list) >= 2) {
+    genders <- names(gender_metrics_list)
+    auc_vals <- sapply(gender_metrics_list, function(x) x$auc)
+    auc_diff <- abs(auc_vals[1] - auc_vals[2])
+    
+    sens_vals <- sapply(gender_metrics_list, function(x) x$sensitivity)
+    sens_diff <- abs(sens_vals[1] - sens_vals[2])
+    
+    cat("Gender Performance Comparison:\n")
+    cat("  AUC difference:", sprintf("%.4f", auc_diff))
+    cat(ifelse(auc_diff > 0.05, " ⚠ WARNING\n", " ✓ OK\n"))
+    cat("  Sensitivity difference:", sprintf("%.4f", sens_diff))
+    cat(ifelse(sens_diff > 0.10, " ⚠ WARNING\n", " ✓ OK\n"))
+    cat("\n")
+  }
+}
+
+# Race Analysis ===============================================================
+if ("RACE" %in% available_demos) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("Race-Stratified Analysis\n")
+  cat(strrep("=", 80) %+% "\n\n")
+  
+  # Show distribution with full names
+  race_results <- analysis_data %>%
+    filter(!is.na(RACE), RACE != "", RACE != "UNKNOWN") %>%
+    group_by(RACE) %>%
+    summarise(
+      N = n(),
+      N_ADRD = sum(true_label == 1),
+      N_CTRL = sum(true_label == 0),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(N))
+  
+  cat("Race distribution:\n")
+  print(race_results, n = 20)
+  cat("\n")
+  
+  # Calculate metrics for each race
+  race_metrics_list <- list()
+  
+  for (race in race_results$RACE) {
+    subset_data <- analysis_data %>% filter(RACE == race)
+    
+    if (nrow(subset_data) < MIN_SUBGROUP_SIZE) {
+      cat("  Skipping '", race, "' (N =", nrow(subset_data), ")\n", sep = "")
+      next
+    }
+    
+    metrics <- calculate_subgroup_metrics(
+      subset_data$true_label,
+      subset_data$predicted_prob,
+      threshold = OPTIMAL_THRESHOLD,
+      conf_level = CONFIDENCE_LEVEL
+    )
+    
+    if (!is.null(metrics)) {
+      metrics$subgroup <- "Race"
+      metrics$category <- as.character(race)
+      metrics$category_short <- simplify_category_name(race)
+      race_metrics_list[[as.character(race)]] <- metrics
+      
+      cat("'", race, "' (", simplify_category_name(race), "):\n", sep = "")
+      cat("  N:", metrics$n,
+          sprintf("(ADRD: %d, CTRL: %d)", metrics$n_pos, metrics$n_neg), "\n")
+      cat("  AUC:", sprintf("%.4f", metrics$auc), "\n")
+      cat("  Accuracy:", sprintf("%.4f", metrics$accuracy), "\n")
+      cat("  Sensitivity:", sprintf("%.4f", metrics$sensitivity), "\n")
+      cat("  Specificity:", sprintf("%.4f", metrics$specificity), "\n")
+      cat("  F1:", sprintf("%.4f", metrics$f1), "\n\n")
+    }
+  }
+  
+  # Analyze racial disparities
+  if (length(race_metrics_list) >= 2) {
+    race_aucs <- sapply(race_metrics_list, function(x) x$auc)
+    race_sens <- sapply(race_metrics_list, function(x) x$sensitivity)
+    
+    auc_range <- max(race_aucs, na.rm = TRUE) - min(race_aucs, na.rm = TRUE)
+    sens_range <- max(race_sens, na.rm = TRUE) - min(race_sens, na.rm = TRUE)
+    
+    cat("Race Performance Variability:\n")
+    cat("  Number of racial groups:", length(race_metrics_list), "\n")
+    cat("  AUC range:", sprintf("%.4f", auc_range))
+    cat(ifelse(auc_range > 0.10, " ⚠ WARNING: Large variability\n", " ✓ OK\n"))
+    cat("  Sensitivity range:", sprintf("%.4f", sens_range))
+    cat(ifelse(sens_range > 0.15, " ⚠ WARNING: Large variability\n", " ✓ OK\n"))
+    cat("\n")
+  }
+}
+
+# Ethnicity Analysis ==========================================================
+if ("HISPANIC" %in% available_demos) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("Ethnicity-Stratified Analysis\n")
+  cat(strrep("=", 80) %+% "\n\n")
+  
+  # Show distribution with full names
+  ethnicity_results <- analysis_data %>%
+    filter(!is.na(HISPANIC), HISPANIC != "", HISPANIC != "UNKNOWN") %>%
+    group_by(HISPANIC) %>%
+    summarise(
+      N = n(),
+      N_ADRD = sum(true_label == 1),
+      N_CTRL = sum(true_label == 0),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(N))
+  
+  cat("Ethnicity distribution:\n")
+  print(ethnicity_results)
+  cat("\n")
+  
+  # Calculate metrics for each ethnicity
+  ethnicity_metrics_list <- list()
+  
+  for (hisp in ethnicity_results$HISPANIC) {
+    subset_data <- analysis_data %>% filter(HISPANIC == hisp)
+    
+    if (nrow(subset_data) < MIN_SUBGROUP_SIZE) {
+      cat("  Skipping '", hisp, "' (N =", nrow(subset_data), ")\n", sep = "")
+      next
+    }
+    
+    metrics <- calculate_subgroup_metrics(
+      subset_data$true_label,
+      subset_data$predicted_prob,
+      threshold = OPTIMAL_THRESHOLD,
+      conf_level = CONFIDENCE_LEVEL
+    )
+    
+    if (!is.null(metrics)) {
+      metrics$subgroup <- "Ethnicity"
+      metrics$category <- as.character(hisp)
+      metrics$category_short <- simplify_category_name(hisp)
+      ethnicity_metrics_list[[as.character(hisp)]] <- metrics
+      
+      cat("'", hisp, "' (", simplify_category_name(hisp), "):\n", sep = "")
+      cat("  N:", metrics$n,
+          sprintf("(ADRD: %d, CTRL: %d)", metrics$n_pos, metrics$n_neg), "\n")
+      cat("  AUC:", sprintf("%.4f", metrics$auc), "\n")
+      cat("  Accuracy:", sprintf("%.4f", metrics$accuracy), "\n")
+      cat("  Sensitivity:", sprintf("%.4f", metrics$sensitivity), "\n")
+      cat("  Specificity:", sprintf("%.4f", metrics$specificity), "\n")
+      cat("  F1:", sprintf("%.4f", metrics$f1), "\n\n")
+    }
+  }
+  
+  # Compare Hispanic vs Non-Hispanic if both exist
+  if (length(ethnicity_metrics_list) >= 2) {
+    hisp_aucs <- sapply(ethnicity_metrics_list, function(x) x$auc)
+    auc_diff <- max(hisp_aucs, na.rm = TRUE) - min(hisp_aucs, na.rm = TRUE)
+    
+    cat("Ethnicity Performance Comparison:\n")
+    cat("  AUC difference:", sprintf("%.4f", auc_diff))
+    cat(ifelse(auc_diff > 0.05, " ⚠ WARNING\n", " ✓ OK\n"))
+    cat("\n")
+  }
+}
+
+# Compile All Results =========================================================
+cat(strrep("=", 80) %+% "\n")
+cat("Compiling Results\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+all_subgroup_metrics <- bind_rows(
+  if (exists("gender_metrics_list") && length(gender_metrics_list) > 0) {
+    bind_rows(lapply(gender_metrics_list, as.data.frame))
+  },
+  if (exists("race_metrics_list") && length(race_metrics_list) > 0) {
+    bind_rows(lapply(race_metrics_list, as.data.frame))
+  },
+  if (exists("ethnicity_metrics_list") && length(ethnicity_metrics_list) > 0) {
+    bind_rows(lapply(ethnicity_metrics_list, as.data.frame))
+  }
+)
+
+if (nrow(all_subgroup_metrics) > 0) {
+  # Add overall metrics
+  overall_df <- as.data.frame(overall_metrics)
+  overall_df$subgroup <- "Overall"
+  overall_df$category <- "All"
+  overall_df$category_short <- "All"
+  
+  all_subgroup_metrics <- bind_rows(overall_df, all_subgroup_metrics)
+  
+  # Add simplified category names if not already present
+  if (!"category_short" %in% names(all_subgroup_metrics)) {
+    all_subgroup_metrics <- all_subgroup_metrics %>%
+      mutate(category_short = sapply(category, simplify_category_name))
+  }
+  
+  # Save results
+  metrics_file <- file.path(DEMO_RESULTS_DIR, "subgroup_performance.csv")
+  write_csv(all_subgroup_metrics, metrics_file)
+  cat("Subgroup metrics saved:", metrics_file, "\n")
+  
+  write_xlsx(all_subgroup_metrics,
+             file.path(DEMO_RESULTS_DIR, "subgroup_performance.xlsx"))
+  cat("Excel format saved\n")
+  
+  saveRDS(all_subgroup_metrics,
+          file.path(DEMO_RESULTS_DIR, "subgroup_performance.rds"))
+  cat("RDS format saved\n\n")
+} else {
+  cat("WARNING: No subgroup metrics calculated\n\n")
+}
+
+# Create Visualizations =======================================================
+cat(strrep("=", 80) %+% "\n")
+cat("Creating Visualizations\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+if (nrow(all_subgroup_metrics) > 1) {
+  
+  # Prepare data for plotting (use simplified names)
+  plot_data <- all_subgroup_metrics %>%
+    filter(subgroup %in% c("Overall", "Gender", "Race", "Ethnicity")) %>%
+    mutate(
+      display_name = ifelse(!is.na(category_short), category_short, category),
+      display_name = wrap_text(display_name, width = 15)
+    )
+  
+  # 1. AUC Comparison Plot
+  cat("Creating AUC comparison plot...\n")
+  
+  auc_plot <- ggplot(plot_data, 
+                     aes(x = reorder(display_name, auc), y = auc, fill = subgroup)) +
+    geom_bar(stat = "identity", alpha = 0.8, width = 0.7) +
+    geom_errorbar(aes(ymin = auc_ci_lower, ymax = auc_ci_upper), 
+                  width = 0.2, linewidth = 0.5) +
+    geom_hline(yintercept = overall_metrics$auc, linetype = "dashed", 
+               color = "red", linewidth = 0.8) +
+    geom_text(aes(label = sprintf("%.3f", auc)), vjust = -0.5, size = 3) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(title = "AUC by Demographic Subgroup",
+         subtitle = sprintf("Dashed line = Overall AUC (%.3f)", overall_metrics$auc),
+         x = "Subgroup", y = "AUC (Area Under ROC Curve)", fill = "Dimension") +
+    theme_classic() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+      axis.text.y = element_text(size = 10),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.position = "bottom"
+    ) +
+    coord_cartesian(ylim = c(0.7, 1.0))
+  
+  ggsave(file.path(DEMO_FIGURES_DIR, "auc_by_subgroup.png"),
+         plot = auc_plot, width = 12, height = 7, dpi = 300)
+  cat("  AUC comparison saved\n")
+  
+  # 2. Sensitivity vs Specificity
+  cat("Creating sensitivity-specificity plot...\n")
+  
+  sens_spec_plot <- ggplot(plot_data,
+                           aes(x = specificity, y = sensitivity, 
+                               color = subgroup, shape = subgroup)) +
+    geom_point(size = 4, alpha = 0.8) +
+    geom_text(aes(label = display_name), vjust = -1.2, size = 3, hjust = 0.5) +
+    geom_hline(yintercept = overall_metrics$sensitivity, 
+               linetype = "dashed", alpha = 0.5) +
+    geom_vline(xintercept = overall_metrics$specificity, 
+               linetype = "dashed", alpha = 0.5) +
+    scale_color_brewer(palette = "Set1") +
+    labs(title = "Sensitivity vs Specificity by Subgroup",
+         subtitle = "Dashed lines = Overall performance",
+         x = "Specificity", y = "Sensitivity",
+         color = "Dimension", shape = "Dimension") +
+    theme_classic() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5),
+      axis.text = element_text(size = 10),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.position = "bottom"
+    ) +
+    coord_cartesian(xlim = c(0.7, 1.0), ylim = c(0.7, 1.0))
+  
+  ggsave(file.path(DEMO_FIGURES_DIR, "sensitivity_specificity.png"),
+         plot = sens_spec_plot, width = 10, height = 10, dpi = 300)
+  cat("  Sensitivity-specificity plot saved\n")
+  
+  # 3. Multiple metrics comparison
+  cat("Creating comprehensive metrics comparison...\n")
+  
+  metrics_comparison <- plot_data %>%
+    select(subgroup, display_name, auc, accuracy, sensitivity, specificity, f1) %>%
+    pivot_longer(cols = c(auc, accuracy, sensitivity, specificity, f1),
+                 names_to = "metric", values_to = "value") %>%
+    mutate(metric = factor(metric,
+                          levels = c("auc","accuracy","sensitivity","specificity","f1"),
+                          labels = c("AUC","Accuracy","Sensitivity","Specificity","F1 Score")))
+  
+  metrics_plot <- ggplot(metrics_comparison,
+                         aes(x = display_name, y = value, fill = metric)) +
+    geom_bar(stat = "identity", position = "dodge", alpha = 0.8, width = 0.8) +
+    facet_wrap(~subgroup, scales = "free_x", ncol = 2) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(title = "Performance Metrics Across Demographic Subgroups",
+         x = "Subgroup", y = "Metric Value", fill = "Metric") +
+    theme_classic() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.y = element_text(size = 9),
+      axis.title = element_text(size = 11, face = "bold"),
+      legend.position = "bottom",
+      strip.text = element_text(size = 11, face = "bold"),
+      strip.background = element_rect(fill = "lightgray")
+    ) +
+    coord_cartesian(ylim = c(0.6, 1.0))
+  
+  ggsave(file.path(DEMO_FIGURES_DIR, "metrics_comparison.png"),
+         plot = metrics_plot, width = 14, height = 10, dpi = 300)
+  cat("  Metrics comparison saved\n\n")
+}
+
+# Create Final Report =========================================================
+cat(strrep("=", 80) %+% "\n")
+cat("Creating Comprehensive Report\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+report_file <- file.path(DEMO_RESULTS_DIR, "demographic_analysis_report.txt")
+sink(report_file)
+
+cat("ADRD ePhenotyping - Demographic Performance Analysis Report\n")
+cat("Aim 1: Evaluate Model Performance Across Demographic Groups\n")
+cat(strrep("=", 80), "\n\n")
+
+cat("Date:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n")
+cat("Classification Threshold:", OPTIMAL_THRESHOLD, "\n\n")
+
+cat("Overall Test Set Performance:\n")
+cat(strrep("-", 40), "\n")
+cat("Total samples:", overall_metrics$n, "\n")
+cat("ADRD cases:", overall_metrics$n_pos,
+    sprintf("(%.1f%%)", overall_metrics$n_pos / overall_metrics$n * 100), "\n")
+cat("Control cases:", overall_metrics$n_neg,
+    sprintf("(%.1f%%)", overall_metrics$n_neg / overall_metrics$n * 100), "\n")
+cat("AUC:", sprintf("%.4f", overall_metrics$auc))
+if (!is.na(overall_metrics$auc_ci_lower)) {
+  cat(sprintf(" (95%% CI: %.4f-%.4f)", overall_metrics$auc_ci_lower,
+              overall_metrics$auc_ci_upper))
+}
+cat("\n")
+cat("Accuracy:", sprintf("%.4f", overall_metrics$accuracy), "\n")
+cat("Sensitivity:", sprintf("%.4f", overall_metrics$sensitivity), "\n")
+cat("Specificity:", sprintf("%.4f", overall_metrics$specificity), "\n")
+cat("F1 Score:", sprintf("%.4f", overall_metrics$f1), "\n\n")
+
+cat("Demographic Variables Analyzed:\n")
+cat(strrep("-", 40), "\n")
+cat(paste(available_demos, collapse = ", "), "\n\n")
+
+if (nrow(all_subgroup_metrics) > 0) {
+  cat("Performance by Demographic Subgroups:\n")
+  cat(strrep("-", 40), "\n")
+  print(all_subgroup_metrics %>%
+          select(subgroup, category, n, n_pos, n_neg, auc, accuracy, 
+                 sensitivity, specificity, f1) %>%
+          arrange(subgroup, desc(n)))
+  cat("\n")
+}
+
+cat("Key Findings:\n")
+cat(strrep("-", 40), "\n")
+
+# Identify disparities
+if (exists("race_metrics_list") && length(race_metrics_list) >= 2) {
+  race_aucs <- sapply(race_metrics_list, function(x) x$auc)
+  auc_range <- max(race_aucs, na.rm = TRUE) - min(race_aucs, na.rm = TRUE)
+  if (auc_range > 0.10) {
+    cat("- ⚠ WARNING: Large AUC variability across racial groups (", 
+        sprintf("%.3f", auc_range), ")\n", sep = "")
+  } else {
+    cat("- ✓ Racial fairness: AUC variability within acceptable range (", 
+        sprintf("%.3f", auc_range), ")\n", sep = "")
+  }
+}
+
+if (exists("gender_metrics_list") && length(gender_metrics_list) >= 2) {
+  genders <- names(gender_metrics_list)
+  sens_diff <- abs(gender_metrics_list[[genders[1]]]$sensitivity - 
+                   gender_metrics_list[[genders[2]]]$sensitivity)
+  if (sens_diff > 0.10) {
+    cat("- ⚠ WARNING: Gender sensitivity difference >10% (", 
+        sprintf("%.3f", sens_diff), ")\n", sep = "")
+  } else {
+    cat("- ✓ Gender fairness: Sensitivity difference within acceptable range (", 
+        sprintf("%.3f", sens_diff), ")\n", sep = "")
+  }
+}
+
+cat("\nRecommendations:\n")
+cat(strrep("-", 40), "\n")
+cat("1. Review subgroups with N <", MIN_SUBGROUP_SIZE, "for statistical reliability\n")
+cat("2. Monitor groups with AUC < 0.80 for potential bias\n")
+cat("3. Consider calibration adjustments for underperforming groups\n")
+cat("4. Validate findings with external datasets\n")
+
+sink()
+
+cat("Report saved:", report_file, "\n\n")
+
+# Final Summary ===============================================================
+cat(strrep("=", 80) %+% "\n")
+cat("DEMOGRAPHIC ANALYSIS COMPLETE\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Summary:\n")
+cat("  Test samples:", nrow(analysis_data), "\n")
+cat("  Demographic variables:", paste(available_demos, collapse = ", "), "\n")
+if (nrow(all_subgroup_metrics) > 0) {
+  cat("  Subgroups analyzed:", nrow(all_subgroup_metrics) - 1, 
+      "(excluding overall)\n")
+}
+cat("  Overall AUC:", sprintf("%.4f", overall_metrics$auc), "\n\n")
+
+cat("Output Files:\n")
+cat("  Results directory:", DEMO_RESULTS_DIR, "/\n")
+cat("  Figures directory:", DEMO_FIGURES_DIR, "/\n\n")
+
+cat("Generated Files:\n")
+cat("  - subgroup_performance.csv\n")
+cat("  - subgroup_performance.xlsx\n")
+cat("  - subgroup_performance.rds\n")
+cat("  - demographic_analysis_report.txt\n")
+if (file.exists(file.path(DEMO_FIGURES_DIR, "auc_by_subgroup.png"))) {
+  cat("  - auc_by_subgroup.png\n")
+  cat("  - sensitivity_specificity.png\n")
+  cat("  - metrics_comparison.png\n")
+}
+cat("\n")
+
+cat("Next Steps:\n")
+cat("  1. Review demographic_analysis_report.txt for key findings\n")
+cat("  2. Check visualizations in figures/demographic/\n")
+cat("  3. Assess fairness metrics and identify any disparities\n")
+cat("  4. Run 05_inference.R to apply model to new data\n\n")
+
+cat(strrep("=", 80) %+% "\n")
+cat("Analysis completed successfully!\n")
+cat(strrep("=", 80) %+% "\n")
