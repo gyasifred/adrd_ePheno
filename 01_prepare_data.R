@@ -3,6 +3,7 @@
 # ADRD ePhenotyping Pipeline - Data Preparation [OPTIONAL]
 # ==============================================================================
 # Version: 2.0
+# Author: Gyasi, Frederick
 # Project: adrd_ephenotyping
 #
 # ⚠️  NOTE: This script is OPTIONAL

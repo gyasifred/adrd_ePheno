@@ -1,6 +1,7 @@
 # ADRD ePhenotyping Pipeline
 
 **Version**: 2.0
+**Author**: Gyasi, Frederick
 **Date**: 2025-11-06
 **Project**: ADRD ePhenotyping with Model Fairness and Explainability
 
@@ -28,9 +29,15 @@ chmod +x setup_environment.sh
 ### 2. Copy Jihad's Trained Models
 ```bash
 mkdir -p models
+
+# Required artifacts (CNNr models only - we focus on Random CNN)
 cp /path/to/jihad/CL07_tokenizer_ref2 models/
-cp /path/to/jihad/CL07_model_CNNr*.h5 models/
-cp /path/to/jihad/CL07_*.rds models/  # If available
+cp /path/to/jihad/CL07_model_CNNr*.h5 models/         # 10 models: CNNr01-CNNr10
+cp /path/to/jihad/CL07_model_CNNr*_hx.rds models/     # Training histories
+cp /path/to/jihad/maxlen.rds models/                   # Sequence length
+
+# Note: Pipeline auto-detects CL07_* naming convention
+# CNNw (Word2Vec) models are NOT needed - we focus on CNNr (Random) only
 ```
 
 ### 3. Copy Your Test Data

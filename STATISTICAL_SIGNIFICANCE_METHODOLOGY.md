@@ -1,8 +1,9 @@
 # Statistical Significance Testing for ADRD ePhenotyping
 
+**Author**: Gyasi, Frederick
 **Purpose**: This document explains statistical methods for evaluating performance differences across demographic subgroups in the ADRD ePhenotyping project (Aim 1).
 
-**Status**: Methodology document - NOT YET IMPLEMENTED IN CODE
+**Status**: ✅ FULLY IMPLEMENTED (v2.0)
 
 **Date**: 2025-11-06
 

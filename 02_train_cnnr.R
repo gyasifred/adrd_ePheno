@@ -3,6 +3,7 @@
 # ADRD Classification Pipeline - CNN Training (CNNr) [REFERENCE ONLY]
 # ==============================================================================
 # Version: 2.0
+# Author: Gyasi, Frederick
 #
 # ⚠️  WARNING: This script is for REFERENCE ONLY
 # ⚠️  Use Jihad Obeid's pre-trained models instead - NO training required!

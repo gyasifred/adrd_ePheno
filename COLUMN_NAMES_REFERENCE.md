@@ -1,5 +1,6 @@
 # ADRD ePhenotyping Pipeline - Column Names Reference
 
+**Author**: Gyasi, Frederick
 **For**: Dr. Paul
 **Date**: 2025-11-06
 **Purpose**: Comprehensive reference for all column names used throughout the pipeline

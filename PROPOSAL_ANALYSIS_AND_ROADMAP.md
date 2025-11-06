@@ -1,5 +1,6 @@
 # ADRD ePhenotyping Project - Proposal Analysis & Implementation Roadmap
 
+**Author**: Gyasi, Frederick
 **Date**: 2025-11-06
 **Project**: ADRD e-Phenotyping with focus on model fairness and explainability
 

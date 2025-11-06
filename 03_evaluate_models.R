@@ -3,6 +3,7 @@
 # ADRD ePhenotyping Pipeline - Model Evaluation [START HERE]
 # ==============================================================================
 # Version: 2.0
+# Author: Gyasi, Frederick
 # Evaluation Using Jihad Obeid's Pre-Trained Models
 #
 # 🎯 KEY: This pipeline uses JIHAD'S TRAINED MODELS - No training required!
