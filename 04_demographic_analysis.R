@@ -96,53 +96,56 @@ cat("\n")
 
 # Simplify long categorical names for display purposes
 simplify_category_name <- function(full_name) {
-  # Handle NA
-  if (is.na(full_name)) return("Unknown")
-  
-  # Convert to character
-  full_name <- as.character(full_name)
-  
-  # RACE simplifications
-  race_map <- c(
-    "WHITE OR CAUCASIAN" = "White",
-    "BLACK OR AFRICAN AMERICAN" = "Black",
-    "OTHER ASIAN" = "Asian",
-    "AMERICAN INDIAN OR ALASKA NATIVE" = "Am. Indian/AK Native",
-    "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER" = "Pacific Islander",
-    "OTHER" = "Other",
-    "UNKNOWN" = "Unknown",
-    "PATIENT REFUSED" = "Refused"
-  )
-  
-  # HISPANIC simplifications
-  hispanic_map <- c(
-    "NO, NOT HISPANIC OR LATINO" = "Non-Hispanic",
-    "YES, ANOTHER HISPANIC OR LATINO" = "Hispanic",
-    "YES, HISPANIC OR LATINO" = "Hispanic",
-    "UNKNOWN" = "Unknown",
-    "PATIENT REFUSED" = "Refused"
-  )
-  
-  # Try race mapping
-  if (full_name %in% names(race_map)) {
-    return(race_map[full_name])
-  }
-  
-  # Try hispanic mapping
-  if (full_name %in% names(hispanic_map)) {
-    return(hispanic_map[full_name])
-  }
-  
-  # If no mapping found, try to shorten intelligently
-  if (nchar(full_name) > 25) {
-    # Take first 3 words
-    words <- unlist(strsplit(full_name, " "))
-    if (length(words) > 3) {
-      return(paste(words[1:3], collapse = " "))
+  # Vectorized version using sapply
+  sapply(full_name, function(name) {
+    # Handle NA
+    if (is.na(name)) return("Unknown")
+
+    # Convert to character
+    name <- as.character(name)
+
+    # RACE simplifications
+    race_map <- c(
+      "WHITE OR CAUCASIAN" = "White",
+      "BLACK OR AFRICAN AMERICAN" = "Black",
+      "OTHER ASIAN" = "Asian",
+      "AMERICAN INDIAN OR ALASKA NATIVE" = "Am. Indian/AK Native",
+      "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER" = "Pacific Islander",
+      "OTHER" = "Other",
+      "UNKNOWN" = "Unknown",
+      "PATIENT REFUSED" = "Refused"
+    )
+
+    # HISPANIC simplifications
+    hispanic_map <- c(
+      "NO, NOT HISPANIC OR LATINO" = "Non-Hispanic",
+      "YES, ANOTHER HISPANIC OR LATINO" = "Hispanic",
+      "YES, HISPANIC OR LATINO" = "Hispanic",
+      "UNKNOWN" = "Unknown",
+      "PATIENT REFUSED" = "Refused"
+    )
+
+    # Try race mapping
+    if (name %in% names(race_map)) {
+      return(race_map[name])
     }
-  }
-  
-  return(full_name)
+
+    # Try hispanic mapping
+    if (name %in% names(hispanic_map)) {
+      return(hispanic_map[name])
+    }
+
+    # If no mapping found, try to shorten intelligently
+    if (nchar(name) > 25) {
+      # Take first 3 words
+      words <- unlist(strsplit(name, " "))
+      if (length(words) > 3) {
+        return(paste(words[1:3], collapse = " "))
+      }
+    }
+
+    return(name)
+  }, USE.NAMES = FALSE)
 }
 
 # Wrap long text for plot labels
