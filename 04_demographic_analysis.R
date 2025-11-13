@@ -161,8 +161,80 @@ wrap_text <- function(text, width = 20) {
   }, USE.NAMES = FALSE)
 }
 
+# Perform chi-squared test for subgroup independence (IMPROVEMENT 3)
+#' Tests H0: ADRD vs Control distribution is independent of demographic category
+#' @param data Data frame containing labels and group variable
+#' @param group_var Name of grouping variable (e.g., "GENDER")
+#' @param label_var Name of outcome variable (default: "true_label")
+#' @return List with test results, p-value, statistic, interpretation
+perform_chi_squared_test <- function(data, group_var, label_var = "true_label") {
+
+  # Filter to valid observations
+  test_data <- data %>%
+    filter(!is.na(.data[[group_var]]), !is.na(.data[[label_var]]))
+
+  if (nrow(test_data) < 10) {
+    return(list(
+      test_type = "insufficient_data",
+      p_value = NA_real_,
+      statistic = NA_real_,
+      df = NA_integer_,
+      method = "Insufficient data",
+      message = paste("Insufficient data: N =", nrow(test_data))
+    ))
+  }
+
+  # Create contingency table
+  cont_table <- table(test_data[[label_var]], test_data[[group_var]])
+
+  # Remove categories with zero counts
+  cont_table <- cont_table[, colSums(cont_table) > 0, drop = FALSE]
+  cont_table <- cont_table[rowSums(cont_table) > 0, , drop = FALSE]
+
+  if (ncol(cont_table) < 2 || nrow(cont_table) < 2) {
+    return(list(
+      test_type = "insufficient_categories",
+      p_value = NA_real_,
+      method = "Insufficient categories",
+      message = "Fewer than 2 categories with data"
+    ))
+  }
+
+  # Check expected frequencies for test selection
+  chi_test <- chisq.test(cont_table)
+  expected <- chi_test$expected
+
+  # Use Fisher's exact if expected frequencies < 5
+  if (any(expected < 5)) {
+    fisher_result <- fisher.test(cont_table, simulate.p.value = TRUE, B = 10000)
+    return(list(
+      test_type = "fisher_exact",
+      p_value = fisher_result$p.value,
+      statistic = NA_real_,
+      df = NA_integer_,
+      method = "Fisher's Exact Test (simulated p-value)",
+      table = cont_table,
+      interpretation = ifelse(fisher_result$p.value < 0.05,
+                             "ADRD vs Control distribution DIFFERS significantly by group",
+                             "No significant difference in ADRD vs Control distribution by group")
+    ))
+  } else {
+    return(list(
+      test_type = "chi_squared",
+      p_value = chi_test$p.value,
+      statistic = as.numeric(chi_test$statistic),
+      df = chi_test$parameter,
+      method = "Pearson's Chi-squared test",
+      table = cont_table,
+      interpretation = ifelse(chi_test$p.value < 0.05,
+                             "ADRD vs Control distribution DIFFERS significantly by group",
+                             "No significant difference in ADRD vs Control distribution by group")
+    ))
+  }
+}
+
 # Calculate comprehensive metrics for a demographic subgroup
-calculate_subgroup_metrics <- function(y_true, y_pred_prob, 
+calculate_subgroup_metrics <- function(y_true, y_pred_prob,
                                       threshold = 0.5,
                                       conf_level = 0.95) {
   # Skip if too few samples
@@ -291,13 +363,50 @@ analysis_data <- predictions %>%
 
 cat("Analysis dataset prepared:", nrow(analysis_data), "samples\n")
 
+# Normalize categorical values for consistent analysis (IMPROVEMENT 1)
+cat("\nNormalizing categorical demographics...\n")
+analysis_data <- analysis_data %>%
+  mutate(
+    # Gender normalization (FEMALE/F → Female, MALE/M → Male)
+    GENDER = if("GENDER" %in% names(.)) {
+      case_when(
+        toupper(GENDER) %in% c("FEMALE", "F") ~ "Female",
+        toupper(GENDER) %in% c("MALE", "M") ~ "Male",
+        toupper(GENDER) == "UNKNOWN" ~ NA_character_,
+        is.na(GENDER) ~ NA_character_,
+        TRUE ~ GENDER
+      )
+    } else { GENDER },
+    # Race normalization
+    RACE = if("RACE" %in% names(.)) {
+      case_when(
+        is.na(RACE) | RACE == "" | toupper(RACE) == "UNKNOWN" ~ NA_character_,
+        TRUE ~ RACE
+      )
+    } else { RACE },
+    # Hispanic normalization
+    HISPANIC = if("HISPANIC" %in% names(.)) {
+      case_when(
+        is.na(HISPANIC) | HISPANIC == "" | toupper(HISPANIC) == "UNKNOWN" ~ NA_character_,
+        TRUE ~ HISPANIC
+      )
+    } else { HISPANIC }
+  )
+
+# Verify normalization
+if ("GENDER" %in% names(analysis_data)) {
+  cat("After gender normalization:\n")
+  cat("  Gender values:", paste(unique(na.omit(analysis_data$GENDER)), collapse=", "), "\n")
+}
+cat("\n")
+
 # Check for available demographic variables
 available_demos <- c()
 for (demo in c("GENDER", "RACE", "HISPANIC")) {
   if (demo %in% names(analysis_data)) {
     n_unique <- n_distinct(analysis_data[[demo]], na.rm = TRUE)
-    n_valid <- sum(!is.na(analysis_data[[demo]]) & 
-                   analysis_data[[demo]] != "" & 
+    n_valid <- sum(!is.na(analysis_data[[demo]]) &
+                   analysis_data[[demo]] != "" &
                    analysis_data[[demo]] != "UNKNOWN")
     cat("  ", demo, ": ", n_unique, " unique values, ", n_valid, " valid\n", sep = "")
     available_demos <- c(available_demos, demo)
@@ -309,6 +418,55 @@ if (length(available_demos) == 0) {
   stop("No demographic variables found!\n",
        "Required: at least one of GENDER, RACE, HISPANIC in predictions file")
 }
+
+# Detect and standardize SDOH variables (IMPROVEMENT 2)
+cat("Detecting Social Determinants of Health (SDOH) variables...\n")
+sdoh_variables <- c()
+
+# Insurance detection
+insurance_cols <- c("INSURANCE", "INSURANCE_TYPE", "PAYER", "INSURANCE_CLASS")
+if (any(insurance_cols %in% names(analysis_data))) {
+  found_col <- intersect(insurance_cols, names(analysis_data))[1]
+  analysis_data <- analysis_data %>%
+    rename(INSURANCE = !!found_col) %>%
+    mutate(INSURANCE = ifelse(INSURANCE == "" | toupper(INSURANCE) == "UNKNOWN",
+                              NA_character_, INSURANCE))
+  n_valid <- sum(!is.na(analysis_data$INSURANCE))
+  cat("  INSURANCE:", n_distinct(analysis_data$INSURANCE, na.rm=TRUE),
+      "categories,", n_valid, "valid\n")
+  sdoh_variables <- c(sdoh_variables, "INSURANCE")
+}
+
+# Education detection
+education_cols <- c("EDUCATION", "EDUCATION_LEVEL", "EDU_LEVEL", "EDUC")
+if (any(education_cols %in% names(analysis_data))) {
+  found_col <- intersect(education_cols, names(analysis_data))[1]
+  analysis_data <- analysis_data %>%
+    rename(EDUCATION = !!found_col) %>%
+    mutate(EDUCATION = ifelse(EDUCATION == "" | toupper(EDUCATION) == "UNKNOWN",
+                              NA_character_, EDUCATION))
+  n_valid <- sum(!is.na(analysis_data$EDUCATION))
+  cat("  EDUCATION:", n_distinct(analysis_data$EDUCATION, na.rm=TRUE),
+      "categories,", n_valid, "valid\n")
+  sdoh_variables <- c(sdoh_variables, "EDUCATION")
+}
+
+# Financial class detection
+financial_cols <- c("FINANCIAL_CLASS", "FIN_CLASS", "PAYMENT_CLASS", "FINANCIAL_STATUS")
+if (any(financial_cols %in% names(analysis_data))) {
+  found_col <- intersect(financial_cols, names(analysis_data))[1]
+  analysis_data <- analysis_data %>%
+    rename(FINANCIAL_CLASS = !!found_col) %>%
+    mutate(FINANCIAL_CLASS = ifelse(FINANCIAL_CLASS == "" | toupper(FINANCIAL_CLASS) == "UNKNOWN",
+                                    NA_character_, FINANCIAL_CLASS))
+  n_valid <- sum(!is.na(analysis_data$FINANCIAL_CLASS))
+  cat("  FINANCIAL_CLASS:", n_distinct(analysis_data$FINANCIAL_CLASS, na.rm=TRUE),
+      "categories,", n_valid, "valid\n")
+  sdoh_variables <- c(sdoh_variables, "FINANCIAL_CLASS")
+}
+
+cat("\nSDOH variables found:",
+    ifelse(length(sdoh_variables) > 0, paste(sdoh_variables, collapse=", "), "None"), "\n\n")
 
 # Display category examples
 cat("Categorical value examples:\n")
@@ -434,6 +592,29 @@ if ("GENDER" %in% available_demos) {
     cat(ifelse(sens_diff > 0.10, " ⚠ WARNING\n", " ✓ OK\n"))
     cat("\n")
 
+    # STATISTICAL SIGNIFICANCE TEST (IMPROVEMENT 4)
+    cat(strrep("-", 80) %+% "\n")
+    cat("Statistical Significance Test\n")
+    cat(strrep("-", 80) %+% "\n")
+
+    chi_result <- perform_chi_squared_test(analysis_data, "GENDER", "true_label")
+
+    cat("Test:", chi_result$method, "\n")
+    if (!is.na(chi_result$statistic)) {
+      cat("Statistic (χ²):", sprintf("%.4f", chi_result$statistic), "\n")
+      cat("Degrees of freedom:", chi_result$df, "\n")
+    }
+    cat("P-value:", sprintf("%.4f", chi_result$p_value), "\n")
+    cat("Result:", chi_result$interpretation, "\n")
+
+    if (chi_result$p_value < 0.05) {
+      cat("\n⚠️  FINDING: Gender significantly affects ADRD classification patterns\n")
+      cat("   Clinical implication: Model may have gender-related bias\n")
+    } else {
+      cat("\n✓  Gender does not significantly affect classification patterns\n")
+    }
+    cat("\n")
+
     # Statistical significance testing
     if (RUN_STATISTICAL_TESTS && length(genders) == 2) {
       cat("Running statistical significance tests...\n")
@@ -553,6 +734,29 @@ if ("RACE" %in% available_demos) {
     cat("  Sensitivity range:", sprintf("%.4f", sens_range))
     cat(ifelse(sens_range > 0.15, " ⚠ WARNING: Large variability\n", " ✓ OK\n"))
     cat("\n")
+
+    # STATISTICAL SIGNIFICANCE TEST (IMPROVEMENT 4)
+    cat(strrep("-", 80) %+% "\n")
+    cat("Statistical Significance Test\n")
+    cat(strrep("-", 80) %+% "\n")
+
+    chi_result <- perform_chi_squared_test(analysis_data, "RACE", "true_label")
+
+    cat("Test:", chi_result$method, "\n")
+    if (!is.na(chi_result$statistic)) {
+      cat("Statistic (χ²):", sprintf("%.4f", chi_result$statistic), "\n")
+      cat("Degrees of freedom:", chi_result$df, "\n")
+    }
+    cat("P-value:", sprintf("%.4f", chi_result$p_value), "\n")
+    cat("Result:", chi_result$interpretation, "\n")
+
+    if (chi_result$p_value < 0.05) {
+      cat("\n⚠️  FINDING: Race significantly affects ADRD classification patterns\n")
+      cat("   Clinical implication: Model performance varies by racial group\n")
+    } else {
+      cat("\n✓  Race does not significantly affect classification patterns\n")
+    }
+    cat("\n")
   }
 }
 
@@ -621,6 +825,29 @@ if ("HISPANIC" %in% available_demos) {
     cat("Ethnicity Performance Comparison:\n")
     cat("  AUC difference:", sprintf("%.4f", auc_diff))
     cat(ifelse(auc_diff > 0.05, " ⚠ WARNING\n", " ✓ OK\n"))
+    cat("\n")
+
+    # STATISTICAL SIGNIFICANCE TEST (IMPROVEMENT 4)
+    cat(strrep("-", 80) %+% "\n")
+    cat("Statistical Significance Test\n")
+    cat(strrep("-", 80) %+% "\n")
+
+    chi_result <- perform_chi_squared_test(analysis_data, "HISPANIC", "true_label")
+
+    cat("Test:", chi_result$method, "\n")
+    if (!is.na(chi_result$statistic)) {
+      cat("Statistic (χ²):", sprintf("%.4f", chi_result$statistic), "\n")
+      cat("Degrees of freedom:", chi_result$df, "\n")
+    }
+    cat("P-value:", sprintf("%.4f", chi_result$p_value), "\n")
+    cat("Result:", chi_result$interpretation, "\n")
+
+    if (chi_result$p_value < 0.05) {
+      cat("\n⚠️  FINDING: Ethnicity significantly affects ADRD classification patterns\n")
+      cat("   Clinical implication: Model performance differs by ethnicity\n")
+    } else {
+      cat("\n✓  Ethnicity does not significantly affect classification patterns\n")
+    }
     cat("\n")
   }
 }
