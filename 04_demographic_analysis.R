@@ -852,6 +852,324 @@ if ("HISPANIC" %in% available_demos) {
   }
 }
 
+# ==============================================================================
+# Insurance Analysis (SDOH)
+# ==============================================================================
+if ("INSURANCE" %in% sdoh_variables) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("Insurance-Stratified Analysis (Social Determinant)\n")
+  cat(strrep("=", 80) %+% "\n\n")
+
+  insurance_dist <- analysis_data %>%
+    filter(!is.na(INSURANCE)) %>%
+    group_by(INSURANCE) %>%
+    summarise(N = n(), N_ADRD = sum(true_label == 1), N_CTRL = sum(true_label == 0), .groups = "drop") %>%
+    arrange(desc(N))
+
+  cat("Insurance type distribution:\n")
+  print(insurance_dist)
+  cat("\n")
+
+  insurance_metrics_list <- list()
+
+  for (ins_type in insurance_dist$INSURANCE) {
+    subset_data <- analysis_data %>% filter(INSURANCE == ins_type)
+
+    if (nrow(subset_data) < MIN_SUBGROUP_SIZE) {
+      cat("  Skipping", ins_type, "(N =", nrow(subset_data), "< min)\n")
+      next
+    }
+
+    metrics <- calculate_subgroup_metrics(subset_data$true_label, subset_data$predicted_prob,
+                                          threshold = OPTIMAL_THRESHOLD, conf_level = CONFIDENCE_LEVEL)
+
+    if (!is.null(metrics)) {
+      metrics$subgroup <- "Insurance"
+      metrics$category <- as.character(ins_type)
+      metrics$category_short <- as.character(ins_type)
+      insurance_metrics_list[[as.character(ins_type)]] <- metrics
+
+      cat(ins_type, ":\n")
+      cat("  N:", metrics$n, sprintf("(ADRD:%d, CTRL:%d)", metrics$n_pos, metrics$n_neg), "\n")
+      cat("  AUC:", sprintf("%.4f [%.4f-%.4f]", metrics$auc, metrics$auc_ci_lower, metrics$auc_ci_upper), "\n")
+      cat("  Sensitivity:", sprintf("%.4f", metrics$sensitivity), "Specificity:", sprintf("%.4f", metrics$specificity), "\n")
+      cat("  F1:", sprintf("%.4f", metrics$f1), "\n\n")
+    }
+  }
+
+  if (length(insurance_metrics_list) >= 2) {
+    ins_aucs <- sapply(insurance_metrics_list, function(x) x$auc)
+    ins_sens <- sapply(insurance_metrics_list, function(x) x$sensitivity)
+    auc_range <- max(ins_aucs, na.rm=TRUE) - min(ins_aucs, na.rm=TRUE)
+    sens_range <- max(ins_sens, na.rm=TRUE) - min(ins_sens, na.rm=TRUE)
+
+    cat("Insurance Performance Comparison:\n")
+    cat("  Insurance types analyzed:", length(insurance_metrics_list), "\n")
+    cat("  AUC range:", sprintf("%.4f", auc_range))
+    cat(ifelse(auc_range > 0.10, " ⚠️  WARNING: Large disparity\n", " ✓ OK\n"))
+    cat("  Sensitivity range:", sprintf("%.4f", sens_range))
+    cat(ifelse(sens_range > 0.15, " ⚠️  WARNING: Large disparity\n", " ✓ OK\n"))
+    cat("\n")
+
+    cat(strrep("-", 80) %+% "\n")
+    cat("Statistical Significance Test\n")
+    cat(strrep("-", 80) %+% "\n")
+
+    chi_result <- perform_chi_squared_test(analysis_data, "INSURANCE", "true_label")
+    cat("Test:", chi_result$method, "\n")
+    if (!is.na(chi_result$statistic)) {
+      cat("Statistic (χ²):", sprintf("%.4f", chi_result$statistic), "\n")
+      cat("Degrees of freedom:", chi_result$df, "\n")
+    }
+    cat("P-value:", sprintf("%.4f", chi_result$p_value), "\n")
+    cat("Result:", chi_result$interpretation, "\n")
+
+    if (chi_result$p_value < 0.05) {
+      cat("\n⚠️  FINDING: Insurance type significantly affects ADRD classification\n")
+      cat("   Socioeconomic implication: Model performance varies by insurance status\n")
+    } else {
+      cat("\n✓  Insurance does not significantly affect classification patterns\n")
+    }
+    cat("\n")
+  }
+}
+
+# ==============================================================================
+# Education Analysis (SDOH)
+# ==============================================================================
+if ("EDUCATION" %in% sdoh_variables) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("Education-Stratified Analysis (Social Determinant)\n")
+  cat(strrep("=", 80) %+% "\n\n")
+
+  education_dist <- analysis_data %>%
+    filter(!is.na(EDUCATION)) %>%
+    group_by(EDUCATION) %>%
+    summarise(N = n(), N_ADRD = sum(true_label == 1), N_CTRL = sum(true_label == 0), .groups = "drop") %>%
+    arrange(desc(N))
+
+  cat("Education level distribution:\n")
+  print(education_dist)
+  cat("\n")
+
+  education_metrics_list <- list()
+
+  for (edu_level in education_dist$EDUCATION) {
+    subset_data <- analysis_data %>% filter(EDUCATION == edu_level)
+
+    if (nrow(subset_data) < MIN_SUBGROUP_SIZE) {
+      cat("  Skipping", edu_level, "(N =", nrow(subset_data), "< min)\n")
+      next
+    }
+
+    metrics <- calculate_subgroup_metrics(subset_data$true_label, subset_data$predicted_prob,
+                                          threshold = OPTIMAL_THRESHOLD, conf_level = CONFIDENCE_LEVEL)
+
+    if (!is.null(metrics)) {
+      metrics$subgroup <- "Education"
+      metrics$category <- as.character(edu_level)
+      metrics$category_short <- as.character(edu_level)
+      education_metrics_list[[as.character(edu_level)]] <- metrics
+
+      cat(edu_level, ":\n")
+      cat("  N:", metrics$n, sprintf("(ADRD:%d, CTRL:%d)", metrics$n_pos, metrics$n_neg), "\n")
+      cat("  AUC:", sprintf("%.4f [%.4f-%.4f]", metrics$auc, metrics$auc_ci_lower, metrics$auc_ci_upper), "\n")
+      cat("  Sensitivity:", sprintf("%.4f", metrics$sensitivity), "Specificity:", sprintf("%.4f", metrics$specificity), "\n")
+      cat("  F1:", sprintf("%.4f", metrics$f1), "\n\n")
+    }
+  }
+
+  if (length(education_metrics_list) >= 2) {
+    edu_aucs <- sapply(education_metrics_list, function(x) x$auc)
+    edu_sens <- sapply(education_metrics_list, function(x) x$sensitivity)
+    auc_range <- max(edu_aucs, na.rm=TRUE) - min(edu_aucs, na.rm=TRUE)
+    sens_range <- max(edu_sens, na.rm=TRUE) - min(edu_sens, na.rm=TRUE)
+
+    cat("Education Performance Comparison:\n")
+    cat("  Education levels analyzed:", length(education_metrics_list), "\n")
+    cat("  AUC range:", sprintf("%.4f", auc_range))
+    cat(ifelse(auc_range > 0.10, " ⚠️  WARNING: Large disparity\n", " ✓ OK\n"))
+    cat("  Sensitivity range:", sprintf("%.4f", sens_range))
+    cat(ifelse(sens_range > 0.15, " ⚠️  WARNING: Large disparity\n", " ✓ OK\n"))
+    cat("\n")
+
+    cat(strrep("-", 80) %+% "\n")
+    cat("Statistical Significance Test\n")
+    cat(strrep("-", 80) %+% "\n")
+
+    chi_result <- perform_chi_squared_test(analysis_data, "EDUCATION", "true_label")
+    cat("Test:", chi_result$method, "\n")
+    if (!is.na(chi_result$statistic)) {
+      cat("Statistic (χ²):", sprintf("%.4f", chi_result$statistic), "\n")
+      cat("Degrees of freedom:", chi_result$df, "\n")
+    }
+    cat("P-value:", sprintf("%.4f", chi_result$p_value), "\n")
+    cat("Result:", chi_result$interpretation, "\n")
+
+    if (chi_result$p_value < 0.05) {
+      cat("\n⚠️  FINDING: Education level significantly affects ADRD classification\n")
+      cat("   Socioeconomic implication: Model performance varies by education\n")
+    } else {
+      cat("\n✓  Education does not significantly affect classification patterns\n")
+    }
+    cat("\n")
+  }
+}
+
+# ==============================================================================
+# Financial Class Analysis (SDOH)
+# ==============================================================================
+if ("FINANCIAL_CLASS" %in% sdoh_variables) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("Financial Class-Stratified Analysis (Social Determinant)\n")
+  cat(strrep("=", 80) %+% "\n\n")
+
+  financial_dist <- analysis_data %>%
+    filter(!is.na(FINANCIAL_CLASS)) %>%
+    group_by(FINANCIAL_CLASS) %>%
+    summarise(N = n(), N_ADRD = sum(true_label == 1), N_CTRL = sum(true_label == 0), .groups = "drop") %>%
+    arrange(desc(N))
+
+  cat("Financial class distribution:\n")
+  print(financial_dist)
+  cat("\n")
+
+  financial_metrics_list <- list()
+
+  for (fin_class in financial_dist$FINANCIAL_CLASS) {
+    subset_data <- analysis_data %>% filter(FINANCIAL_CLASS == fin_class)
+
+    if (nrow(subset_data) < MIN_SUBGROUP_SIZE) {
+      cat("  Skipping", fin_class, "(N =", nrow(subset_data), "< min)\n")
+      next
+    }
+
+    metrics <- calculate_subgroup_metrics(subset_data$true_label, subset_data$predicted_prob,
+                                          threshold = OPTIMAL_THRESHOLD, conf_level = CONFIDENCE_LEVEL)
+
+    if (!is.null(metrics)) {
+      metrics$subgroup <- "Financial Class"
+      metrics$category <- as.character(fin_class)
+      metrics$category_short <- as.character(fin_class)
+      financial_metrics_list[[as.character(fin_class)]] <- metrics
+
+      cat(fin_class, ":\n")
+      cat("  N:", metrics$n, sprintf("(ADRD:%d, CTRL:%d)", metrics$n_pos, metrics$n_neg), "\n")
+      cat("  AUC:", sprintf("%.4f [%.4f-%.4f]", metrics$auc, metrics$auc_ci_lower, metrics$auc_ci_upper), "\n")
+      cat("  Sensitivity:", sprintf("%.4f", metrics$sensitivity), "Specificity:", sprintf("%.4f", metrics$specificity), "\n")
+      cat("  F1:", sprintf("%.4f", metrics$f1), "\n\n")
+    }
+  }
+
+  if (length(financial_metrics_list) >= 2) {
+    fin_aucs <- sapply(financial_metrics_list, function(x) x$auc)
+    fin_sens <- sapply(financial_metrics_list, function(x) x$sensitivity)
+    auc_range <- max(fin_aucs, na.rm=TRUE) - min(fin_aucs, na.rm=TRUE)
+    sens_range <- max(fin_sens, na.rm=TRUE) - min(fin_sens, na.rm=TRUE)
+
+    cat("Financial Class Performance Comparison:\n")
+    cat("  Financial classes analyzed:", length(financial_metrics_list), "\n")
+    cat("  AUC range:", sprintf("%.4f", auc_range))
+    cat(ifelse(auc_range > 0.10, " ⚠️  WARNING: Large disparity\n", " ✓ OK\n"))
+    cat("  Sensitivity range:", sprintf("%.4f", sens_range))
+    cat(ifelse(sens_range > 0.15, " ⚠️  WARNING: Large disparity\n", " ✓ OK\n"))
+    cat("\n")
+
+    cat(strrep("-", 80) %+% "\n")
+    cat("Statistical Significance Test\n")
+    cat(strrep("-", 80) %+% "\n")
+
+    chi_result <- perform_chi_squared_test(analysis_data, "FINANCIAL_CLASS", "true_label")
+    cat("Test:", chi_result$method, "\n")
+    if (!is.na(chi_result$statistic)) {
+      cat("Statistic (χ²):", sprintf("%.4f", chi_result$statistic), "\n")
+      cat("Degrees of freedom:", chi_result$df, "\n")
+    }
+    cat("P-value:", sprintf("%.4f", chi_result$p_value), "\n")
+    cat("Result:", chi_result$interpretation, "\n")
+
+    if (chi_result$p_value < 0.05) {
+      cat("\n⚠️  FINDING: Financial class significantly affects ADRD classification\n")
+      cat("   Socioeconomic implication: Model performance varies by financial status\n")
+    } else {
+      cat("\n✓  Financial class does not significantly affect classification patterns\n")
+    }
+    cat("\n")
+  }
+}
+
+# ==============================================================================
+# Intersectional Analysis: Gender × Race
+# ==============================================================================
+if ("GENDER" %in% available_demos && "RACE" %in% available_demos) {
+  cat(strrep("=", 80) %+% "\n")
+  cat("Intersectional Analysis: Gender × Race Combinations\n")
+  cat(strrep("=", 80) %+% "\n\n")
+
+  intersect_data <- analysis_data %>%
+    filter(!is.na(GENDER), !is.na(RACE)) %>%
+    mutate(
+      intersection = paste(GENDER, "×", RACE),
+      intersection_short = paste(GENDER, simplify_category_name(RACE), sep=" × ")
+    )
+
+  intersect_dist <- intersect_data %>%
+    group_by(intersection, intersection_short, GENDER, RACE) %>%
+    summarise(N = n(), N_ADRD = sum(true_label == 1), N_CTRL = sum(true_label == 0), .groups = "drop") %>%
+    arrange(desc(N))
+
+  cat("Intersectional groups with N ≥ 30:\n")
+  print(intersect_dist %>% filter(N >= 30))
+  cat("\n")
+
+  intersect_metrics_list <- list()
+
+  for (i in 1:nrow(intersect_dist)) {
+    if (intersect_dist$N[i] < 30) next
+
+    group_name <- intersect_dist$intersection[i]
+    subset_data <- intersect_data %>% filter(intersection == group_name)
+
+    metrics <- calculate_subgroup_metrics(subset_data$true_label, subset_data$predicted_prob,
+                                          threshold = OPTIMAL_THRESHOLD, conf_level = CONFIDENCE_LEVEL)
+
+    if (!is.null(metrics)) {
+      metrics$subgroup <- "Gender × Race"
+      metrics$category <- group_name
+      metrics$category_short <- intersect_dist$intersection_short[i]
+      metrics$gender <- intersect_dist$GENDER[i]
+      metrics$race <- intersect_dist$RACE[i]
+      intersect_metrics_list[[group_name]] <- metrics
+
+      cat(group_name, ":\n")
+      cat("  N:", metrics$n, "| AUC:", sprintf("%.4f", metrics$auc),
+          "| Sens:", sprintf("%.4f", metrics$sensitivity),
+          "| Spec:", sprintf("%.4f", metrics$specificity), "\n")
+    }
+  }
+
+  if (length(intersect_metrics_list) >= 4) {
+    int_aucs <- sapply(intersect_metrics_list, function(x) x$auc)
+    auc_range <- max(int_aucs, na.rm=TRUE) - min(int_aucs, na.rm=TRUE)
+
+    cat("\nIntersectional Performance Range:\n")
+    cat("  AUC range across intersections:", sprintf("%.4f", auc_range))
+    cat(ifelse(auc_range > 0.10, " ⚠️  WARNING: Compound disparities exist\n", " ✓ OK\n"))
+
+    best_group <- names(int_aucs)[which.max(int_aucs)]
+    worst_group <- names(int_aucs)[which.min(int_aucs)]
+
+    cat("\n  Best performing:", best_group, sprintf("(AUC=%.4f)", max(int_aucs)), "\n")
+    cat("  Worst performing:", worst_group, sprintf("(AUC=%.4f)", min(int_aucs)), "\n")
+    cat("  Performance gap:", sprintf("%.4f", max(int_aucs) - min(int_aucs)), "\n\n")
+
+    if (auc_range > 0.10) {
+      cat("⚠️  FINDING: Compound disparities detected across intersectional groups\n")
+      cat("   Recommendation: Targeted model recalibration for underperforming groups\n\n")
+    }
+  }
+}
+
 # Compile All Results =========================================================
 cat(strrep("=", 80) %+% "\n")
 cat("Compiling Results\n")
@@ -866,6 +1184,18 @@ all_subgroup_metrics <- bind_rows(
   },
   if (exists("ethnicity_metrics_list") && length(ethnicity_metrics_list) > 0) {
     bind_rows(lapply(ethnicity_metrics_list, as.data.frame))
+  },
+  if (exists("insurance_metrics_list") && length(insurance_metrics_list) > 0) {
+    bind_rows(lapply(insurance_metrics_list, as.data.frame))
+  },
+  if (exists("education_metrics_list") && length(education_metrics_list) > 0) {
+    bind_rows(lapply(education_metrics_list, as.data.frame))
+  },
+  if (exists("financial_metrics_list") && length(financial_metrics_list) > 0) {
+    bind_rows(lapply(financial_metrics_list, as.data.frame))
+  },
+  if (exists("intersect_metrics_list") && length(intersect_metrics_list) > 0) {
+    bind_rows(lapply(intersect_metrics_list, as.data.frame))
   }
 )
 
@@ -907,43 +1237,66 @@ cat(strrep("=", 80) %+% "\n\n")
 
 if (nrow(all_subgroup_metrics) > 1) {
   
-  # Prepare data for plotting (use simplified names)
+  # Prepare data for plotting - ENHANCED with factor categorization
   plot_data <- all_subgroup_metrics %>%
-    filter(subgroup %in% c("Overall", "Gender", "Race", "Ethnicity")) %>%
+    filter(subgroup != "Overall") %>%
     mutate(
       display_name = ifelse(!is.na(category_short), category_short, category),
-      display_name = wrap_text(display_name, width = 15)
+      display_name = wrap_text(display_name, width = 15),
+      factor_type = case_when(
+        subgroup %in% c("Gender", "Race", "Ethnicity", "Age") ~ "Demographic",
+        subgroup %in% c("Insurance", "Education", "Financial Class") ~ "SDOH",
+        grepl("×", subgroup) ~ "Intersectional",
+        TRUE ~ "Other"
+      ),
+      low_performance = auc < (overall_metrics$auc - 0.05)
     )
-  
-  # 1. AUC Comparison Plot
-  cat("Creating AUC comparison plot...\n")
-  
-  auc_plot <- ggplot(plot_data, 
-                     aes(x = reorder(display_name, auc), y = auc, fill = subgroup)) +
-    geom_bar(stat = "identity", alpha = 0.8, width = 0.7) +
-    geom_errorbar(aes(ymin = auc_ci_lower, ymax = auc_ci_upper), 
+
+  # 1. ENHANCED AUC Comparison Plot with factor types
+  cat("Creating enhanced AUC comparison plot...\n")
+
+  auc_plot <- ggplot(plot_data,
+                     aes(x = reorder(display_name, auc), y = auc,
+                         fill = factor_type, alpha = low_performance)) +
+    geom_bar(stat = "identity", width = 0.7) +
+    geom_errorbar(aes(ymin = auc_ci_lower, ymax = auc_ci_upper),
                   width = 0.2, linewidth = 0.5) +
-    geom_hline(yintercept = overall_metrics$auc, linetype = "dashed", 
-               color = "red", linewidth = 0.8) +
-    geom_text(aes(label = sprintf("%.3f", auc)), vjust = -0.5, size = 3) +
-    scale_fill_brewer(palette = "Set2") +
-    labs(title = "AUC by Demographic Subgroup",
-         subtitle = sprintf("Dashed line = Overall AUC (%.3f)", overall_metrics$auc),
-         x = "Subgroup", y = "AUC (Area Under ROC Curve)", fill = "Dimension") +
+    geom_text(aes(label = sprintf("n=%d", n)),
+              vjust = -2.5, size = 2.5, color = "black") +
+    geom_text(aes(label = sprintf("%.3f", auc)),
+              vjust = -0.8, size = 3, fontface = "bold") +
+    geom_hline(yintercept = overall_metrics$auc,
+               linetype = "dashed", color = "red", linewidth = 0.8) +
+    scale_fill_manual(
+      values = c("Demographic" = "#8dd3c7", "SDOH" = "#fb8072",
+                 "Intersectional" = "#bebada"),
+      name = "Factor Type"
+    ) +
+    scale_alpha_manual(values = c("TRUE" = 0.6, "FALSE" = 0.9), guide = "none") +
+    facet_wrap(~factor_type, scales = "free_x", ncol = 1) +
+    labs(
+      title = "Model Performance Across Demographic, SDOH, and Intersectional Subgroups",
+      subtitle = sprintf("Dashed line = Overall AUC (%.3f) | Error bars = 95%% CI | Faded bars = AUC < baseline-0.05",
+                        overall_metrics$auc),
+      x = "Subgroup",
+      y = "AUC (Area Under ROC Curve)"
+    ) +
     theme_classic() +
     theme(
       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 11, hjust = 0.5),
+      plot.subtitle = element_text(size = 10, hjust = 0.5),
       axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
       axis.text.y = element_text(size = 10),
       axis.title = element_text(size = 12, face = "bold"),
-      legend.position = "bottom"
+      legend.position = "bottom",
+      strip.text = element_text(size = 11, face = "bold"),
+      strip.background = element_rect(fill = "lightgray", color = "black")
     ) +
-    coord_cartesian(ylim = c(0.7, 1.0))
-  
-  ggsave(file.path(DEMO_FIGURES_DIR, "auc_by_subgroup.png"),
-         plot = auc_plot, width = 12, height = 7, dpi = 300)
-  cat("  AUC comparison saved\n")
+    coord_cartesian(ylim = c(0.70, 1.0))
+
+  ggsave(file.path(DEMO_FIGURES_DIR, "auc_by_subgroup_enhanced.png"),
+         plot = auc_plot, width = 14, height = 10, dpi = 300)
+  cat("  Enhanced AUC comparison saved\n")
   
   # 2. Sensitivity vs Specificity
   cat("Creating sensitivity-specificity plot...\n")
@@ -1009,6 +1362,53 @@ if (nrow(all_subgroup_metrics) > 1) {
   ggsave(file.path(DEMO_FIGURES_DIR, "metrics_comparison.png"),
          plot = metrics_plot, width = 14, height = 10, dpi = 300)
   cat("  Metrics comparison saved\n\n")
+
+  # 4. Intersectional Performance Heatmap
+  if (exists("intersect_metrics_list") && length(intersect_metrics_list) >= 4) {
+    cat("Creating intersectional heatmap...\n")
+
+    heatmap_data <- bind_rows(lapply(intersect_metrics_list, as.data.frame)) %>%
+      mutate(
+        Gender_short = ifelse("gender" %in% names(.), gender, NA_character_),
+        Race_short = ifelse("race" %in% names(.), simplify_category_name(race), NA_character_)
+      )
+
+    if ("Gender_short" %in% names(heatmap_data) && "Race_short" %in% names(heatmap_data)) {
+      heatmap_plot <- ggplot(heatmap_data, aes(x = Race_short, y = Gender_short, fill = auc)) +
+        geom_tile(color = "white", linewidth = 1) +
+        geom_text(aes(label = sprintf("%.3f\nn=%d", auc, n)),
+                  color = "white", size = 4, fontface = "bold") +
+        scale_fill_gradient2(
+          low = "#d73027",
+          mid = "#fee08b",
+          high = "#1a9850",
+          midpoint = overall_metrics$auc,
+          limits = c(0.70, 1.0),
+          name = "AUC"
+        ) +
+        labs(
+          title = "Intersectional Performance: Gender × Race",
+          subtitle = sprintf("Color scale centered at overall AUC (%.3f) | N ≥ 30 samples required",
+                            overall_metrics$auc),
+          x = "Race Category",
+          y = "Gender"
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 11, hjust = 0.5),
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 11),
+          axis.text.y = element_text(size = 11),
+          axis.title = element_text(size = 12, face = "bold"),
+          legend.position = "right",
+          panel.grid = element_blank()
+        )
+
+      ggsave(file.path(DEMO_FIGURES_DIR, "intersectional_heatmap.png"),
+             plot = heatmap_plot, width = 12, height = 6, dpi = 300)
+      cat("  Intersectional heatmap saved\n\n")
+    }
+  }
 }
 
 # Create Final Report =========================================================
@@ -1076,15 +1476,65 @@ if (exists("race_metrics_list") && length(race_metrics_list) >= 2) {
 
 if (exists("gender_metrics_list") && length(gender_metrics_list) >= 2) {
   genders <- names(gender_metrics_list)
-  sens_diff <- abs(gender_metrics_list[[genders[1]]]$sensitivity - 
+  sens_diff <- abs(gender_metrics_list[[genders[1]]]$sensitivity -
                    gender_metrics_list[[genders[2]]]$sensitivity)
   if (sens_diff > 0.10) {
-    cat("- ⚠ WARNING: Gender sensitivity difference >10% (", 
+    cat("- ⚠ WARNING: Gender sensitivity difference >10% (",
         sprintf("%.3f", sens_diff), ")\n", sep = "")
   } else {
-    cat("- ✓ Gender fairness: Sensitivity difference within acceptable range (", 
+    cat("- ✓ Gender fairness: Sensitivity difference within acceptable range (",
         sprintf("%.3f", sens_diff), ")\n", sep = "")
   }
+}
+
+# SDOH FINDINGS
+if (length(sdoh_variables) > 0) {
+  cat("\nSOCIAL DETERMINANTS OF HEALTH ANALYSIS\n")
+  cat(strrep("-", 40), "\n")
+  cat("Variables analyzed:", paste(sdoh_variables, collapse = ", "), "\n\n")
+
+  for (sdoh_var in sdoh_variables) {
+    list_name <- paste0(tolower(gsub(" ", "_", sdoh_var)), "_metrics_list")
+    if (exists(list_name)) {
+      metrics_list <- get(list_name)
+      if (length(metrics_list) >= 2) {
+        aucs <- sapply(metrics_list, function(x) x$auc)
+        cat(sdoh_var, ":\n")
+        cat("  Categories:", length(metrics_list), "\n")
+        cat("  AUC range:", sprintf("%.4f", max(aucs, na.rm=TRUE) - min(aucs, na.rm=TRUE)))
+        if ((max(aucs, na.rm=TRUE) - min(aucs, na.rm=TRUE)) > 0.10) {
+          cat(" ⚠️  WARNING\n")
+        } else {
+          cat(" ✓ OK\n")
+        }
+        cat("  Best:", names(which.max(aucs)), sprintf("(%.4f)", max(aucs)), "\n")
+        cat("  Worst:", names(which.min(aucs)), sprintf("(%.4f)", min(aucs)), "\n\n")
+      }
+    }
+  }
+}
+
+# INTERSECTIONAL FINDINGS
+if (exists("intersect_metrics_list") && length(intersect_metrics_list) >= 4) {
+  cat("INTERSECTIONAL ANALYSIS\n")
+  cat(strrep("-", 40), "\n")
+  int_aucs <- sapply(intersect_metrics_list, function(x) x$auc)
+  cat("Gender × Race intersections analyzed:", length(intersect_metrics_list), "\n")
+  cat("AUC range:", sprintf("%.4f", max(int_aucs) - min(int_aucs)))
+  if ((max(int_aucs) - min(int_aucs)) > 0.10) {
+    cat(" ⚠️  WARNING\n")
+  } else {
+    cat(" ✓ OK\n")
+  }
+  cat("Best performing:", names(which.max(int_aucs)),
+      sprintf("(AUC=%.4f)", max(int_aucs)), "\n")
+  cat("Worst performing:", names(which.min(int_aucs)),
+      sprintf("(AUC=%.4f)", min(int_aucs)), "\n")
+  if ((max(int_aucs) - min(int_aucs)) > 0.10) {
+    cat("\n⚠️  WARNING: Compound disparities detected\n")
+    cat("   Recommendation: Targeted model recalibration for underperforming groups\n")
+  }
+  cat("\n")
 }
 
 cat("\nRecommendations:\n")
