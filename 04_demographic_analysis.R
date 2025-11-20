@@ -164,6 +164,77 @@ wrap_text <- function(text, width = 20) {
   }, USE.NAMES = FALSE)
 }
 
+# Plot null distribution from permutation test
+plot_null_distribution <- function(stat_result, demo_name, save_dir = NULL) {
+  #' Visualize null distribution with observed statistic
+  #' @param stat_result Result from compare_groups_comprehensive()
+  #' @param demo_name Name of demographic variable for title
+  #' @param save_dir Directory to save plot (optional)
+
+  if (is.null(stat_result) || is.null(stat_result$permutation_result)) {
+    cat("  No permutation results to plot\n")
+    return(NULL)
+  }
+
+  perm_diffs <- stat_result$permutation_result$perm_diffs
+  observed_diff <- stat_result$auc_diff
+  p_value <- stat_result$perm_p_value
+
+  if (length(perm_diffs) == 0) {
+    cat("  Empty permutation distribution\n")
+    return(NULL)
+  }
+
+  # Create data frame for plotting
+  null_df <- data.frame(diff = perm_diffs)
+
+  # Calculate critical values
+  p95 <- quantile(perm_diffs, 0.975)
+  p05 <- quantile(perm_diffs, 0.025)
+
+  # Create plot
+  p <- ggplot(null_df, aes(x = diff)) +
+    geom_histogram(aes(y = ..density..), bins = 50,
+                   fill = "lightblue", color = "white", alpha = 0.7) +
+    geom_density(color = "steelblue", linewidth = 1) +
+    # Observed statistic
+    geom_vline(xintercept = observed_diff,
+               color = "red", linewidth = 1.5) +
+    # Critical values (95% CI)
+    geom_vline(xintercept = p95, color = "orange", linewidth = 1, linetype = "dashed") +
+    geom_vline(xintercept = p05, color = "orange", linewidth = 1, linetype = "dashed") +
+    # Annotations
+    annotate("text", x = observed_diff, y = Inf,
+             label = sprintf("Observed\n%.4f", observed_diff),
+             vjust = 1.5, hjust = ifelse(observed_diff > 0, -0.1, 1.1),
+             color = "red", fontface = "bold", size = 3) +
+    labs(
+      title = sprintf("Null Distribution: %s Effect on AUC", demo_name),
+      subtitle = sprintf("%s vs %s | Observed diff = %.4f | p = %.4f",
+                        stat_result$group_a, stat_result$group_b,
+                        observed_diff, p_value),
+      x = "Permuted AUC Difference",
+      y = "Density",
+      caption = sprintf("H0: %s does not affect model performance | n=%d permutations\nRed = observed | Orange dashed = 95%% critical values",
+                       demo_name, length(perm_diffs))
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+      plot.subtitle = element_text(hjust = 0.5, size = 10),
+      plot.caption = element_text(hjust = 0, size = 8)
+    )
+
+  # Save if directory provided
+  if (!is.null(save_dir)) {
+    filename <- file.path(save_dir, paste0("null_distribution_", tolower(demo_name), ".png"))
+    ggsave(filename, plot = p, width = 8, height = 6, dpi = 300)
+    cat("  Null distribution plot saved:", filename, "\n")
+  }
+
+  return(p)
+}
+
 # Perform chi-squared test for subgroup independence (IMPROVEMENT 3)
 #' Tests H0: ADRD vs Control distribution is independent of demographic category
 #' @param data Data frame containing labels and group variable
@@ -661,6 +732,10 @@ if ("GENDER" %in% available_demos) {
         statistical_test_results <- list()
       }
       statistical_test_results$gender <- stat_result
+
+      # Plot null distribution
+      cat("Creating null distribution visualization for Gender...\n")
+      plot_null_distribution(stat_result, "Gender", DEMO_FIGURES_DIR)
     }
   }
 }
@@ -760,6 +835,45 @@ if ("RACE" %in% available_demos) {
       cat("\n✓  Race does not significantly affect classification patterns\n")
     }
     cat("\n")
+
+    # Permutation test for two largest racial groups
+    if (RUN_STATISTICAL_TESTS && length(race_metrics_list) >= 2) {
+      sorted_races <- names(sort(sapply(race_metrics_list, function(x) x$n), decreasing = TRUE))
+      race_a <- sorted_races[1]
+      race_b <- sorted_races[2]
+
+      cat("Permutation Test:", race_a, "vs", race_b, "\n")
+
+      data_a <- analysis_data %>%
+        filter(RACE == race_a) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      data_b <- analysis_data %>%
+        filter(RACE == race_b) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      stat_result <- compare_groups_comprehensive(
+        data_a, data_b,
+        group_a_name = simplify_category_name(race_a),
+        group_b_name = simplify_category_name(race_b),
+        n_perm = N_PERMUTATIONS,
+        n_boot = N_BOOTSTRAP
+      )
+
+      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
+      if (stat_result$perm_p_value < FDR_ALPHA) {
+        cat(" *** SIGNIFICANT\n")
+      } else {
+        cat(" (not significant)\n")
+      }
+      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+
+      statistical_test_results$race <- stat_result
+
+      # Plot null distribution
+      cat("Creating null distribution visualization for Race...\n")
+      plot_null_distribution(stat_result, "Race", DEMO_FIGURES_DIR)
+    }
   }
 }
 
@@ -852,6 +966,45 @@ if ("HISPANIC" %in% available_demos) {
       cat("\n✓  Ethnicity does not significantly affect classification patterns\n")
     }
     cat("\n")
+
+    # Permutation test for two largest ethnicity groups
+    if (RUN_STATISTICAL_TESTS && length(ethnicity_metrics_list) >= 2) {
+      sorted_eth <- names(sort(sapply(ethnicity_metrics_list, function(x) x$n), decreasing = TRUE))
+      eth_a <- sorted_eth[1]
+      eth_b <- sorted_eth[2]
+
+      cat("Permutation Test:", simplify_category_name(eth_a), "vs", simplify_category_name(eth_b), "\n")
+
+      data_a <- analysis_data %>%
+        filter(HISPANIC == eth_a) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      data_b <- analysis_data %>%
+        filter(HISPANIC == eth_b) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      stat_result <- compare_groups_comprehensive(
+        data_a, data_b,
+        group_a_name = simplify_category_name(eth_a),
+        group_b_name = simplify_category_name(eth_b),
+        n_perm = N_PERMUTATIONS,
+        n_boot = N_BOOTSTRAP
+      )
+
+      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
+      if (stat_result$perm_p_value < FDR_ALPHA) {
+        cat(" *** SIGNIFICANT\n")
+      } else {
+        cat(" (not significant)\n")
+      }
+      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+
+      statistical_test_results$ethnicity <- stat_result
+
+      # Plot null distribution
+      cat("Creating null distribution visualization for Ethnicity...\n")
+      plot_null_distribution(stat_result, "Ethnicity", DEMO_FIGURES_DIR)
+    }
   }
 }
 
@@ -934,6 +1087,45 @@ if ("INSURANCE" %in% sdoh_variables) {
       cat("\n✓  Insurance does not significantly affect classification patterns\n")
     }
     cat("\n")
+
+    # Permutation test for two largest insurance groups
+    if (RUN_STATISTICAL_TESTS && length(insurance_metrics_list) >= 2) {
+      sorted_ins <- names(sort(sapply(insurance_metrics_list, function(x) x$n), decreasing = TRUE))
+      ins_a <- sorted_ins[1]
+      ins_b <- sorted_ins[2]
+
+      cat("Permutation Test:", ins_a, "vs", ins_b, "\n")
+
+      data_a <- analysis_data %>%
+        filter(INSURANCE == ins_a) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      data_b <- analysis_data %>%
+        filter(INSURANCE == ins_b) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      stat_result <- compare_groups_comprehensive(
+        data_a, data_b,
+        group_a_name = ins_a,
+        group_b_name = ins_b,
+        n_perm = N_PERMUTATIONS,
+        n_boot = N_BOOTSTRAP
+      )
+
+      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
+      if (stat_result$perm_p_value < FDR_ALPHA) {
+        cat(" *** SIGNIFICANT\n")
+      } else {
+        cat(" (not significant)\n")
+      }
+      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+
+      statistical_test_results$insurance <- stat_result
+
+      # Plot null distribution
+      cat("Creating null distribution visualization for Insurance...\n")
+      plot_null_distribution(stat_result, "Insurance", DEMO_FIGURES_DIR)
+    }
   }
 }
 
@@ -1016,6 +1208,45 @@ if ("EDUCATION" %in% sdoh_variables) {
       cat("\n✓  Education does not significantly affect classification patterns\n")
     }
     cat("\n")
+
+    # Permutation test for two largest education groups
+    if (RUN_STATISTICAL_TESTS && length(education_metrics_list) >= 2) {
+      sorted_edu <- names(sort(sapply(education_metrics_list, function(x) x$n), decreasing = TRUE))
+      edu_a <- sorted_edu[1]
+      edu_b <- sorted_edu[2]
+
+      cat("Permutation Test:", edu_a, "vs", edu_b, "\n")
+
+      data_a <- analysis_data %>%
+        filter(EDUCATION == edu_a) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      data_b <- analysis_data %>%
+        filter(EDUCATION == edu_b) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      stat_result <- compare_groups_comprehensive(
+        data_a, data_b,
+        group_a_name = edu_a,
+        group_b_name = edu_b,
+        n_perm = N_PERMUTATIONS,
+        n_boot = N_BOOTSTRAP
+      )
+
+      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
+      if (stat_result$perm_p_value < FDR_ALPHA) {
+        cat(" *** SIGNIFICANT\n")
+      } else {
+        cat(" (not significant)\n")
+      }
+      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+
+      statistical_test_results$education <- stat_result
+
+      # Plot null distribution
+      cat("Creating null distribution visualization for Education...\n")
+      plot_null_distribution(stat_result, "Education", DEMO_FIGURES_DIR)
+    }
   }
 }
 
@@ -1098,6 +1329,45 @@ if ("FINANCIAL_CLASS" %in% sdoh_variables) {
       cat("\n✓  Financial class does not significantly affect classification patterns\n")
     }
     cat("\n")
+
+    # Permutation test for two largest financial class groups
+    if (RUN_STATISTICAL_TESTS && length(financial_metrics_list) >= 2) {
+      sorted_fin <- names(sort(sapply(financial_metrics_list, function(x) x$n), decreasing = TRUE))
+      fin_a <- sorted_fin[1]
+      fin_b <- sorted_fin[2]
+
+      cat("Permutation Test:", fin_a, "vs", fin_b, "\n")
+
+      data_a <- analysis_data %>%
+        filter(FINANCIAL_CLASS == fin_a) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      data_b <- analysis_data %>%
+        filter(FINANCIAL_CLASS == fin_b) %>%
+        select(label = true_label, pred = predicted_prob)
+
+      stat_result <- compare_groups_comprehensive(
+        data_a, data_b,
+        group_a_name = fin_a,
+        group_b_name = fin_b,
+        n_perm = N_PERMUTATIONS,
+        n_boot = N_BOOTSTRAP
+      )
+
+      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
+      if (stat_result$perm_p_value < FDR_ALPHA) {
+        cat(" *** SIGNIFICANT\n")
+      } else {
+        cat(" (not significant)\n")
+      }
+      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+
+      statistical_test_results$financial_class <- stat_result
+
+      # Plot null distribution
+      cat("Creating null distribution visualization for Financial Class...\n")
+      plot_null_distribution(stat_result, "Financial_Class", DEMO_FIGURES_DIR)
+    }
   }
 }
 
