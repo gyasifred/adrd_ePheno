@@ -1,0 +1,97 @@
+ADRD ePhenotyping - AIM 2: Feature Analysis Report
+================================================================================ 
+
+Date: 2025-11-25 12:26:51 
+
+CORPUS STATISTICS
+---------------------------------------- 
+Total documents: 1460 
+ADRD documents: 657 (45.0%)
+Control documents: 803 (55.0%)
+Unique features (after trimming): 13890 
+Min term frequency threshold: 10 
+
+CHI-SQUARED TEST RESULTS
+---------------------------------------- 
+Features tested: 13890 
+Significant features (FDR < 0.05): 3780
+  Overrepresented in ADRD: 3780 
+  Overrepresented in CTRL: 0 
+
+TOP 20 DISCRIMINATIVE TERMS FOR ADRD
+---------------------------------------- 
+       feature      chi2    p_adjusted
+1         goal 4596.2531  0.000000e+00
+2      outcome 4377.1496  0.000000e+00
+3      ongoing 3696.3410  0.000000e+00
+4  progressing 2738.0771  0.000000e+00
+5    discharge 2113.5886  0.000000e+00
+6         oral 2096.6125  0.000000e+00
+7           pt 2039.8680  0.000000e+00
+8     dementia 1850.2450  0.000000e+00
+9    admission 1830.3518  0.000000e+00
+10        care 1707.9254  0.000000e+00
+11       acute 1660.5643  0.000000e+00
+12         bed 1414.7156 1.542509e-306
+13           h 1360.1170 1.042152e-294
+14          rn 1219.9431 2.803591e-264
+15        home 1181.4103 6.194506e-256
+16      injury 1160.2992 2.249552e-251
+17        fall 1114.8521 1.596366e-241
+18   inpatient 1025.8969 3.256194e-222
+19         qhs  993.9926 2.654640e-215
+20    impaired  894.5220 1.057671e-193
+
+TOP 20 DISCRIMINATIVE TERMS FOR CTRL
+---------------------------------------- 
+No significant terms found
+
+TF-IDF TOP TERMS
+---------------------------------------- 
+ADRD:
+          bonner       restraints         danilova         svetlana 
+        52.37922         41.24111         37.32772         37.02669 
+          milieu        nedervelt              goc       hemisphere 
+        35.52154         35.52154         27.09270         25.58755 
+   intracatheter          mohamad         bhandari         layering 
+        23.17931         21.67416         20.77107         20.47004 
+            crrt         surendar        mebrahtom           tesfai 
+        19.86798         19.26592         18.96489         18.96489 
+            esbl        magdalena maddalithirumala       shrinivasa 
+        18.96489         18.96489         18.66386         18.66386 
+
+CTRL:
+    optional        lumps     discontd     basename          adt      raynaud 
+    38.53184     24.98549     22.87828     21.97519     21.07210     20.47004 
+  preventive        moles    sunscreen        mammo     alopecia       papule 
+    18.96489     18.36283     16.55665     15.95459     15.65356     15.65356 
+        tbse          mgs     mounjaro          srt dislocations           db 
+    15.05150     15.05150     15.05150     14.44944     14.44944     14.14841 
+  evolocumab   dispensing 
+    14.14841     14.14841 
+
+OUTPUT FILES
+---------------------------------------- 
+Results directory: results/aim2 /
+Figures directory: figures/aim2 /
+
+Generated files:
+  - term_frequencies_overall.csv
+  - term_frequencies_by_class.csv
+  - chi_squared_results.csv
+  - discriminative_terms.xlsx
+  - tfidf_top_terms.csv
+  - lime_sample_cases.csv
+  - wordcloud_adrd.png
+  - wordcloud_ctrl.png
+  - top_terms_by_class.png
+  - chi_squared_keyness.png
+  - tfidf_comparison.png
+
+NEXT STEPS
+---------------------------------------- 
+1. Review discriminative terms for clinical relevance
+2. Consult subject matter experts to classify terms
+3. Implement full LIME analysis (requires lime package)
+4. Conduct behavioral testing with identified terms
+5. Validate findings with external dataset
