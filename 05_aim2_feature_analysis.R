@@ -160,9 +160,20 @@ adrd_tokens <- tokens(
   split_hyphens = FALSE
 )
 
-# Remove stopwords
-cat("Removing stopwords...\n")
+# Remove stopwords and masked tokens ONLY
+cat("Removing stopwords and masked tokens...\n")
 adrd_tokens <- tokens_remove(adrd_tokens, pattern = stopwords("en"))
+
+# Remove ONLY masked tokens from de-identification (tokens with underscores)
+# These are artifacts from data preprocessing/masking: _decnum_, _time_, _date_, etc.
+masked_tokens <- c(
+  "_decnum_", "_time_", "_date_", "_phonenum_", "_ssn_", "_mrn_",
+  "_num_", "_id_", "_email_", "_url_", "_name_", "_address_",
+  "_age_", "_dob_", "_zip_", "_fax_", "_hipaa_"
+)
+
+cat("  Removing", length(masked_tokens), "masked tokens (de-identification artifacts)\n")
+adrd_tokens <- tokens_remove(adrd_tokens, pattern = masked_tokens, valuetype = "fixed")
 
 # Create Document-Feature Matrix
 cat("Creating document-feature matrix...\n")
@@ -363,7 +374,8 @@ if (length(demo_vars_available) == 0) {
                            remove_symbols = TRUE,
                            remove_numbers = TRUE) %>%
         tokens_tolower() %>%
-        tokens_remove(pattern = stopwords("en"))
+        tokens_remove(pattern = stopwords("en")) %>%
+        tokens_remove(pattern = masked_tokens, valuetype = "fixed")
 
       sub_dfm <- dfm(sub_tokens) %>%
         dfm_trim(min_termfreq = 5, min_docfreq = 3)
@@ -632,7 +644,8 @@ if (is.null(predictions)) {
                             remove_symbols = TRUE,
                             remove_numbers = TRUE) %>%
           tokens_tolower() %>%
-          tokens_remove(pattern = stopwords("en"))
+          tokens_remove(pattern = stopwords("en")) %>%
+          tokens_remove(pattern = masked_tokens, valuetype = "fixed")
 
         sub_dfm <- dfm(sub_tokens) %>%
           dfm_trim(min_termfreq = 5, min_docfreq = 3)

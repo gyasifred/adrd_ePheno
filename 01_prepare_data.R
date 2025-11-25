@@ -1,27 +1,26 @@
 #!/usr/bin/env Rscript
 # ==============================================================================
-# ADRD ePhenotyping Pipeline - Data Preparation [OPTIONAL]
+# ADRD ePhenotyping Pipeline - Data Preparation [REQUIRED FOR EVALUATION]
 # ==============================================================================
-# Version: 2.0
+# Version: 2.1
 # Author: Gyasi, Frederick
 # Project: adrd_ephenotyping
 #
-# ⚠️  NOTE: This script is OPTIONAL
-# ⚠️  Run only if you need to create train/test split from raw data
-# ⚠️  For evaluation using Jihad Obeid's pre-trained models, skip to 03_evaluate_models.R
+# ⚠️  UPDATED APPROACH: Full dataset used for evaluation (no train/test split)
+# ⚠️  Uses pre-trained models from Jihad Obeid - NO NEW TRAINING
 #
-# Purpose: Load, validate, and split data for CNN training
+# Purpose: Load, validate, and prepare FULL dataset for CNN evaluation
 #
-# Input:  data/raw/ptHx_sample_v2025-10-25.csv
-# Output: data/train_set.rds, data/test_set.rds, data/split_info.rds
+# Input:  data/raw/ptHx_sample_v2025-11-24.csv
+# Output: data/test_set.rds (full dataset), data/train_set.rds (small reference)
 #
 # Key Operations:
 # 1. Load preprocessed clinical notes with STRING labels ('ADRD', 'NON-ADRD')
 # 2. Convert string labels to numeric (ADRD→1, NON-ADRD→0)
 # 3. Rename 'content' column to 'txt' for downstream compatibility
-# 4. Create stratified 80/20 train/test split
-# 5. Validate data quality and class balance
-# 6. Save processed datasets with both original and numeric labels
+# 4. Use ENTIRE dataset as test set for evaluation
+# 5. Create small train_set.rds reference file for compatibility
+# 6. Validate data quality and class balance
 # ==============================================================================
 
 # Load Libraries --------------------------------------------------------------
@@ -47,11 +46,11 @@ cat(strrep("-", 80), "\n", sep = "")
 
 RAW_DATA_DIR <- "data/raw"
 OUTPUT_DIR   <- "data"
-INPUT_FILE   <- "ptHx_sample_v2025-10-25.csv"
+INPUT_FILE   <- "ptHx_sample_v2025-11-24.csv"  # UPDATED filename
 
 dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
-TRAIN_PROPORTION <- 0.80
+# NO TRAIN/TEST SPLIT - Using full dataset for evaluation
 RANDOM_SEED      <- 42
 
 # Required columns in input CSV
@@ -60,7 +59,8 @@ REQUIRED_COLS    <- c("DE_ID", "content", "Label")
 DEMOGRAPHIC_COLS <- c("GENDER", "RACE", "HISPANIC")
 
 cat("  Input file:", INPUT_FILE, "\n")
-cat("  Train/test split:", TRAIN_PROPORTION, "/", 1 - TRAIN_PROPORTION, "\n")
+cat("  Approach: FULL DATASET for evaluation (no train/test split)\n")
+cat("  Using pre-trained CNN models from Jihad Obeid\n")
 cat("  Random seed:", RANDOM_SEED, "\n")
 cat("  Column transformations:\n")
 cat("    - 'content' to 'txt' (for downstream pipeline)\n")
@@ -336,181 +336,87 @@ cat("\n  Label conversion complete\n")
 cat("    Final dataset: ", sum(clean_data$label == 1), " ADRD, ",
     sum(clean_data$label == 0), " NON-ADRD\n\n", sep = "")
 
-# Stratified Train/Test Split -------------------------------------------------
+# Dataset Assignment ---------------------------------------------------------
 cat(strrep("=", 80), "\n", sep = "")
-cat("Creating Stratified Train/Test Split\n")
+cat("Dataset Assignment for Evaluation\n")
 cat(strrep("=", 80), "\n\n")
 
 set.seed(RANDOM_SEED)
 
-# Determine stratification variables
-strat_vars <- c("label")
-use_gender <- FALSE
-use_race <- FALSE
+cat("APPROACH: Full dataset used for evaluation\n")
+cat("  - Using pre-trained CNN models (Jihad Obeid)\n")
+cat("  - NO new training required\n")
+cat("  - ALL data assigned to test set\n")
+cat("  - Minimal train_set created for pipeline compatibility\n\n")
 
-if ("GENDER" %in% available_demos && n_distinct(clean_data$GENDER, na.rm = TRUE) > 1) {
-  use_gender <- TRUE
-  strat_vars <- c(strat_vars, "GENDER")
-}
+# Use ENTIRE dataset as test set
+test_data <- clean_data
 
-if ("RACE" %in% available_demos && n_distinct(clean_data$RACE, na.rm = TRUE) > 1) {
-  race_counts <- clean_data %>% count(RACE, name = "n") %>% filter(n >= 20)
-  if (nrow(race_counts) >= 2) {
-    use_race <- TRUE
-    strat_vars <- c(strat_vars, "RACE")
-  }
-}
+# Create minimal train set (10 samples) for pipeline compatibility only
+# Some scripts may reference train_set.rds, but it won't be used
+cat("Creating datasets...\n")
+train_data <- clean_data %>%
+  group_by(label) %>%
+  slice_head(n = 5) %>%  # 5 ADRD + 5 NON-ADRD
+  ungroup()
 
-cat("Stratification variables:", paste(strat_vars, collapse = ", "), "\n")
-cat("  (Ensures balanced representation across groups)\n\n")
+cat("Dataset assignments:\n")
+cat("  Test set (FULL DATASET):", nrow(test_data), "patients\n")
+cat("  Train set (reference):   ", nrow(train_data), "patients (NOT USED)\n")
+cat("  Note: Train set is minimal reference only - evaluation uses test set\n\n")
 
-# Create composite stratification variable
-# rsample's initial_split only accepts a single column for strata
-if (length(strat_vars) > 1) {
-  cat("Creating composite stratification variable...\n")
-  
-  # Build composite strata column
-  clean_data <- clean_data %>%
-    mutate(
-      strata_group = case_when(
-        use_gender & use_race ~ paste(label, GENDER, RACE, sep = "_"),
-        use_gender & !use_race ~ paste(label, GENDER, sep = "_"),
-        !use_gender & use_race ~ paste(label, RACE, sep = "_"),
-        TRUE ~ as.character(label)
-      )
-    )
-  
-  # Check strata group sizes
-  strata_summary <- clean_data %>%
-    count(strata_group, name = "n") %>%
-    arrange(n)
-  
-  cat("  Created", nrow(strata_summary), "strata groups\n")
-  
-  # Check for small groups
-  small_groups <- strata_summary %>% filter(n < 5)
-  if (nrow(small_groups) > 0) {
-    cat("  WARNING:", nrow(small_groups), "groups have <5 patients\n")
-    cat("  These may cause stratification issues\n")
-    if (nrow(small_groups) <= 5) {
-      cat("  Small groups:\n")
-      print(small_groups)
-    }
-  }
-  
-  strata_col <- "strata_group"
-} else {
-  strata_col <- "label"
-}
-
-cat("\n")
-
-# Perform stratified split
-cat("Performing stratified split...\n")
-split_obj <- initial_split(
-  clean_data,
-  prop = TRAIN_PROPORTION,
-  strata = strata_col
-)
-
-train_data <- training(split_obj)
-test_data  <- testing(split_obj)
-
-# Remove temporary strata column if created
-if ("strata_group" %in% names(train_data)) {
-  train_data <- train_data %>% select(-strata_group)
-  test_data <- test_data %>% select(-strata_group)
-}
-
-cat("Split results:\n")
-cat("  Training set:", nrow(train_data), "patients\n")
-cat("  Test set:    ", nrow(test_data),  "patients\n\n")
-
-# Verify Split Quality --------------------------------------------------------
+# Verify Dataset Quality -----------------------------------------------------
 cat(strrep("=", 80), "\n", sep = "")
-cat("Verifying Split Quality\n")
+cat("Verifying Test Dataset Quality\n")
 cat(strrep("=", 80), "\n\n")
 
-# 1. Check for patient overlap
-overlap <- intersect(train_data$DE_ID, test_data$DE_ID)
-if (length(overlap) > 0) {
-  stop("ERROR: Patient overlap detected - ", length(overlap), " IDs in both sets!")
-} else {
-  cat("  No patient overlap between train and test sets\n")
-}
-
-# 2. Check split proportion
-actual_prop <- nrow(train_data) / (nrow(train_data) + nrow(test_data))
-cat("  Actual split proportion:", sprintf("%.4f / %.4f", 
-    actual_prop, 1 - actual_prop), "\n\n")
-
-# 3. Check label balance
-cat("Label balance verification:\n")
-train_adrd_pct <- mean(train_data$label) * 100
+# 1. Check test set label distribution
+cat("Label distribution in test set (FULL DATASET):\n")
 test_adrd_pct  <- mean(test_data$label) * 100
-cat("  Training set ADRD:", sprintf("%.2f%%", train_adrd_pct), 
-    sprintf("(%d/%d)\n", sum(train_data$label), nrow(train_data)))
-cat("  Test set ADRD:    ", sprintf("%.2f%%", test_adrd_pct), 
+cat("  ADRD:     ", sprintf("%.2f%%", test_adrd_pct),
     sprintf("(%d/%d)\n", sum(test_data$label), nrow(test_data)))
+cat("  NON-ADRD: ", sprintf("%.2f%%", 100 - test_adrd_pct),
+    sprintf("(%d/%d)\n\n", sum(test_data$label == 0), nrow(test_data)))
 
-prop_diff <- abs(train_adrd_pct - test_adrd_pct)
-cat("  Difference:", sprintf("%.2f percentage points\n", prop_diff))
-
-if (prop_diff > 5) {
-  cat("  WARNING: >5% difference in class distribution\n")
-} else {
-  cat("  Well-balanced split\n")
-}
-cat("\n")
-
-# 4. Check demographic balance
+# 2. Check demographic distribution in test set
 if (length(available_demos) > 0) {
-  cat("Demographic balance across splits:\n")
+  cat("Demographic distribution in test set:\n")
   for (demo_col in available_demos) {
     cat("\n", demo_col, ":\n", sep = "")
-    
-    train_tbl <- train_data %>% count(!!sym(demo_col), name = "Train_N")
-    test_tbl  <- test_data  %>% count(!!sym(demo_col), name = "Test_N")
-    
-    balance_tbl <- full_join(train_tbl, test_tbl, by = demo_col) %>%
-      replace_na(list(Train_N = 0, Test_N = 0)) %>%
-      mutate(
-        Train_Pct = Train_N / sum(Train_N) * 100,
-        Test_Pct  = Test_N  / sum(Test_N)  * 100,
-        Diff_Pct  = abs(Train_Pct - Test_Pct)
-      )
-    
-    print(balance_tbl %>% 
-          select(!!sym(demo_col), Train_N, Test_N, Train_Pct, Test_Pct, Diff_Pct), 
-          n = 15)
-    
-    max_diff <- max(balance_tbl$Diff_Pct, na.rm = TRUE)
-    if (max_diff > 10) {
-      cat("  WARNING: Some groups differ by >10 percentage points\n")
+
+    demo_tbl <- test_data %>%
+      filter(!is.na(!!sym(demo_col)), !!sym(demo_col) != "") %>%
+      count(!!sym(demo_col), name = "N") %>%
+      mutate(Percent = sprintf("%.1f%%", N / sum(N) * 100)) %>%
+      arrange(desc(N))
+
+    print(demo_tbl, n = 15)
+
+    # Check for adequate subgroup sizes
+    small_groups <- demo_tbl %>% filter(N < 20)
+    if (nrow(small_groups) > 0) {
+      cat("  Note: ", nrow(small_groups),
+          " groups have <20 patients (may limit stratified analysis)\n", sep = "")
     }
   }
   cat("\n")
 }
 
-# Save Split Metadata ---------------------------------------------------------
+# Save Dataset Metadata ------------------------------------------------------
 cat(strrep("=", 80), "\n", sep = "")
-cat("Saving Split Information\n")
+cat("Saving Dataset Information\n")
 cat(strrep("=", 80), "\n\n")
 
-# Create comprehensive split metadata
-split_info <- bind_rows(
-  train_data %>% 
-    select(DE_ID, Label, label, all_of(available_demos)) %>% 
-    mutate(partition = "train"),
-  test_data  %>% 
-    select(DE_ID, Label, label, all_of(available_demos)) %>% 
-    mutate(partition = "test")
-)
+# Create dataset metadata (all data is test set)
+dataset_info <- test_data %>%
+  select(DE_ID, Label, label, all_of(available_demos)) %>%
+  mutate(partition = "test")  # All data is test
 
-split_info_file <- file.path(OUTPUT_DIR, "split_info.rds")
-saveRDS(split_info, split_info_file)
-cat("Split metadata saved:", split_info_file, "\n")
-cat("  Contains: patient IDs, labels, demographics, partition assignment\n\n")
+dataset_info_file <- file.path(OUTPUT_DIR, "split_info.rds")
+saveRDS(dataset_info, dataset_info_file)
+cat("Dataset metadata saved:", dataset_info_file, "\n")
+cat("  Contains: patient IDs, labels, demographics\n")
+cat("  Partition: ALL data assigned to 'test' (full dataset evaluation)\n\n")
 
 # Save Datasets ---------------------------------------------------------------
 train_file <- file.path(OUTPUT_DIR, "train_set.rds")
@@ -637,8 +543,10 @@ cat("  ", summary_file, "\n", sep = "")
 cat("\nNext Steps:\n")
 cat("  1. Review ", basename(summary_file), " for detailed statistics\n", sep = "")
 cat("  2. Verify demographic distributions if needed\n")
-cat("  3. Run: Rscript scripts/02_train_cnnr.R\n")
+cat("  3. Run: Rscript 03_evaluate_models.R (using Jihad's pre-trained models)\n")
+cat("  4. Skip training - models are pre-trained!\n")
 
 cat("\n", strrep("=", 80), "\n", sep = "")
 cat("Data preparation completed successfully!\n")
+cat("Full dataset ready for CNN evaluation.\n")
 cat(strrep("=", 80), "\n", sep = "")
