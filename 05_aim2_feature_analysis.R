@@ -168,11 +168,39 @@ adrd_tokens <- tokens_remove(adrd_tokens, pattern = stopwords("en"))
 masked_tokens <- c(
   "_decnum_", "_time_", "_date_", "_phonenum_", "_ssn_", "_mrn_",
   "_num_", "_id_", "_email_", "_url_", "_name_", "_address_",
-  "_age_", "_dob_", "_zip_", "_fax_", "_hipaa_"
+  "_age_", "_dob_", "_zip_", "_fax_", "_hipaa_", "_lgnum_"
 )
 
 cat("  Removing", length(masked_tokens), "masked tokens (de-identification artifacts)\n")
 adrd_tokens <- tokens_remove(adrd_tokens, pattern = masked_tokens, valuetype = "fixed")
+
+# Define function to filter non-significant terms for visualization/interpretation
+# These terms are kept in the DFM for analysis but filtered for human review
+filter_nonsignificant_terms <- function(term_data, term_col = "feature") {
+  #' Filter out non-clinically-meaningful terms for visualization
+  #'
+  #' Removes:
+  #' - Single characters (s, o, x, etc.)
+  #' - Pure numbers (1, 2, 3, etc.)
+  #' - Remaining masked tokens (any token with underscores)
+  #' - Very short non-word tokens (mg, ml kept as medically relevant)
+  #'
+  #' @param term_data Data frame with terms
+  #' @param term_col Name of column containing terms
+  #' @return Filtered data frame
+
+  term_data %>%
+    filter(
+      # Remove single characters
+      nchar(.data[[term_col]]) > 1,
+      # Remove pure numbers
+      !grepl("^[0-9]+$", .data[[term_col]]),
+      # Remove remaining masked tokens (anything with underscores)
+      !grepl("_", .data[[term_col]]),
+      # Keep only terms that are at least 2 chars OR are medically relevant abbreviations
+      nchar(.data[[term_col]]) >= 2
+    )
+}
 
 # Create Document-Feature Matrix
 cat("Creating document-feature matrix...\n")
@@ -199,8 +227,11 @@ cat(strrep("=", 80) %+% "\n\n")
 cat("Calculating overall term frequencies...\n")
 term_freq_all <- textstat_frequency(adrd_dfm_trimmed)
 
-cat("  Top 20 most frequent terms:\n")
-print(head(term_freq_all, 20))
+# Filter for display (keep raw data for analysis)
+term_freq_all_clean <- filter_nonsignificant_terms(term_freq_all, "feature")
+
+cat("  Top 20 most frequent clinically relevant terms:\n")
+print(head(term_freq_all_clean, 20))
 cat("\n")
 
 # Frequency by class
@@ -210,12 +241,15 @@ adrd_dfm_grouped <- dfm_group(adrd_dfm_trimmed, groups = label_str)
 term_freq_by_class <- textstat_frequency(adrd_dfm_grouped,
                                          groups = label_str)
 
-cat("  Top 10 terms in ADRD notes:\n")
-print(head(term_freq_by_class %>% filter(group == "ADRD"), 10))
+# Filter for display
+term_freq_by_class_clean <- filter_nonsignificant_terms(term_freq_by_class, "feature")
+
+cat("  Top 10 clinically relevant terms in ADRD notes:\n")
+print(head(term_freq_by_class_clean %>% filter(group == "ADRD"), 10))
 cat("\n")
 
-cat("  Top 10 terms in CTRL notes:\n")
-print(head(term_freq_by_class %>% filter(group == "CTRL"), 10))
+cat("  Top 10 clinically relevant terms in CTRL notes:\n")
+print(head(term_freq_by_class_clean %>% filter(group == "CTRL"), 10))
 cat("\n")
 
 # Save frequency tables
@@ -267,12 +301,16 @@ top_ctrl_terms <- chi2_results %>%
   arrange(chi2) %>%
   head(TOP_N_FEATURES)
 
-cat("Top 20 terms overrepresented in ADRD:\n")
-print(head(top_adrd_terms, 20))
+# Filter for display (but keep unfiltered for saving to files)
+top_adrd_terms_clean <- filter_nonsignificant_terms(top_adrd_terms, "feature")
+top_ctrl_terms_clean <- filter_nonsignificant_terms(top_ctrl_terms, "feature")
+
+cat("Top 20 clinically relevant terms overrepresented in ADRD:\n")
+print(head(top_adrd_terms_clean, 20))
 cat("\n")
 
-cat("Top 20 terms overrepresented in CTRL:\n")
-print(head(top_ctrl_terms, 20))
+cat("Top 20 clinically relevant terms overrepresented in CTRL:\n")
+print(head(top_ctrl_terms_clean, 20))
 cat("\n")
 
 # Save chi-squared results
@@ -501,12 +539,27 @@ top_tfidf_adrd <- topfeatures(adrd_tfidf[docid(adrd_tfidf) == "ADRD", ],
 top_tfidf_ctrl <- topfeatures(adrd_tfidf[docid(adrd_tfidf) == "CTRL", ],
                                n = TOP_N_FEATURES)
 
-cat("  Top 20 TF-IDF terms for ADRD:\n")
-print(head(top_tfidf_adrd, 20))
+# Filter for display - convert to data frame, filter, then back to named vector
+top_tfidf_adrd_df <- data.frame(feature = names(top_tfidf_adrd),
+                                  tfidf = as.numeric(top_tfidf_adrd),
+                                  stringsAsFactors = FALSE)
+top_tfidf_adrd_clean_df <- filter_nonsignificant_terms(top_tfidf_adrd_df, "feature")
+top_tfidf_adrd_clean <- setNames(top_tfidf_adrd_clean_df$tfidf,
+                                   top_tfidf_adrd_clean_df$feature)
+
+top_tfidf_ctrl_df <- data.frame(feature = names(top_tfidf_ctrl),
+                                  tfidf = as.numeric(top_tfidf_ctrl),
+                                  stringsAsFactors = FALSE)
+top_tfidf_ctrl_clean_df <- filter_nonsignificant_terms(top_tfidf_ctrl_df, "feature")
+top_tfidf_ctrl_clean <- setNames(top_tfidf_ctrl_clean_df$tfidf,
+                                   top_tfidf_ctrl_clean_df$feature)
+
+cat("  Top 20 clinically relevant TF-IDF terms for ADRD:\n")
+print(head(top_tfidf_adrd_clean, 20))
 cat("\n")
 
-cat("  Top 20 TF-IDF terms for CTRL:\n")
-print(head(top_tfidf_ctrl, 20))
+cat("  Top 20 clinically relevant TF-IDF terms for CTRL:\n")
+print(head(top_tfidf_ctrl_clean, 20))
 cat("\n")
 
 # Save TF-IDF results
@@ -792,26 +845,38 @@ cat(strrep("=", 80) %+% "\n\n")
 # 1. Word Clouds
 cat("Creating word clouds...\n")
 
+# Create filtered DFM for clean visualizations
+# Remove single chars, numbers, and remaining artifacts
+terms_to_keep <- featnames(adrd_dfm_grouped)
+terms_to_keep <- terms_to_keep[
+  nchar(terms_to_keep) > 1 &              # Not single characters
+  !grepl("^[0-9]+$", terms_to_keep) &     # Not pure numbers
+  !grepl("_", terms_to_keep)               # No underscores (masked tokens)
+]
+
+adrd_dfm_clean <- dfm_select(adrd_dfm_grouped, pattern = terms_to_keep,
+                              selection = "keep", valuetype = "fixed")
+
 # Word cloud for ADRD
 png(file.path(AIM2_FIGURES_DIR, "wordcloud_adrd.png"),
     width = 10, height = 10, units = "in", res = 300)
-textplot_wordcloud(adrd_dfm_grouped[docid(adrd_dfm_grouped) == "ADRD", ],
+textplot_wordcloud(adrd_dfm_clean[docid(adrd_dfm_clean) == "ADRD", ],
                   min_count = MIN_TERM_FREQ,
                   max_words = 100,
                   color = brewer.pal(8, "Dark2"),
                   rotation = 0.25)
-title("Most Frequent Terms in ADRD Notes", cex.main = 1.5)
+title("Most Frequent Clinical Terms in ADRD Notes", cex.main = 1.5)
 dev.off()
 
 # Word cloud for CTRL
 png(file.path(AIM2_FIGURES_DIR, "wordcloud_ctrl.png"),
     width = 10, height = 10, units = "in", res = 300)
-textplot_wordcloud(adrd_dfm_grouped[docid(adrd_dfm_grouped) == "CTRL", ],
+textplot_wordcloud(adrd_dfm_clean[docid(adrd_dfm_clean) == "CTRL", ],
                   min_count = MIN_TERM_FREQ,
                   max_words = 100,
                   color = brewer.pal(8, "Set2"),
                   rotation = 0.25)
-title("Most Frequent Terms in Control Notes", cex.main = 1.5)
+title("Most Frequent Clinical Terms in Control Notes", cex.main = 1.5)
 dev.off()
 
 cat("  Word clouds saved\n")
@@ -819,13 +884,14 @@ cat("  Word clouds saved\n")
 # 2. Top Terms Bar Plot
 cat("Creating top terms bar plot...\n")
 
+# Use filtered terms for visualization
 plot_data <- bind_rows(
-  term_freq_by_class %>%
+  term_freq_by_class_clean %>%
     filter(group == "ADRD") %>%
     arrange(desc(frequency)) %>%
     head(20) %>%
     mutate(class = "ADRD"),
-  term_freq_by_class %>%
+  term_freq_by_class_clean %>%
     filter(group == "CTRL") %>%
     arrange(desc(frequency)) %>%
     head(20) %>%
@@ -840,8 +906,8 @@ top_terms_plot <- ggplot(plot_data,
   coord_flip() +
   scale_fill_manual(values = c("ADRD" = "#E74C3C", "CTRL" = "#3498DB")) +
   labs(
-    title = "Top 20 Most Frequent Terms by Class",
-    x = "Term",
+    title = "Top 20 Most Frequent Clinical Terms by Class",
+    x = "Clinical Term",
     y = "Frequency",
     fill = "Class"
   ) +
@@ -862,15 +928,12 @@ cat("  Top terms plot saved\n")
 # 3. Chi-Squared Plot
 cat("Creating chi-squared keyness plot...\n")
 
+# Filter chi2 results for clean visualization
 chi2_plot_data <- bind_rows(
-  chi2_results %>%
-    filter(chi2 > 0, significant) %>%
-    arrange(desc(chi2)) %>%
+  top_adrd_terms_clean %>%
     head(20) %>%
     mutate(direction = "Overrepresented in ADRD"),
-  chi2_results %>%
-    filter(chi2 < 0, significant) %>%
-    arrange(chi2) %>%
+  top_ctrl_terms_clean %>%
     head(20) %>%
     mutate(direction = "Overrepresented in CTRL")
 )
@@ -886,9 +949,9 @@ if (nrow(chi2_plot_data) > 0) {
       "Overrepresented in CTRL" = "#3498DB"
     )) +
     labs(
-      title = "Top Discriminative Terms (χ² Test)",
-      subtitle = sprintf("FDR < %.2f", CHI_SQUARE_ALPHA),
-      x = "Term",
+      title = "Top Discriminative Clinical Terms (χ² Test)",
+      subtitle = sprintf("FDR < %.2f, filtered for clinical relevance", CHI_SQUARE_ALPHA),
+      x = "Clinical Term",
       y = "χ² Statistic",
       fill = "Direction"
     ) +
@@ -911,11 +974,13 @@ if (nrow(chi2_plot_data) > 0) {
 # 4. TF-IDF Comparison Plot
 cat("Creating TF-IDF comparison plot...\n")
 
+# Use filtered TF-IDF terms
 tfidf_plot_data <- data.frame(
-  term = c(names(head(top_tfidf_adrd, 20)), names(head(top_tfidf_ctrl, 20))),
-  tfidf = c(as.numeric(head(top_tfidf_adrd, 20)),
-            as.numeric(head(top_tfidf_ctrl, 20))),
-  class = c(rep("ADRD", 20), rep("CTRL", 20))
+  term = c(names(head(top_tfidf_adrd_clean, 20)), names(head(top_tfidf_ctrl_clean, 20))),
+  tfidf = c(as.numeric(head(top_tfidf_adrd_clean, 20)),
+            as.numeric(head(top_tfidf_ctrl_clean, 20))),
+  class = c(rep("ADRD", min(20, length(top_tfidf_adrd_clean))),
+            rep("CTRL", min(20, length(top_tfidf_ctrl_clean))))
 )
 
 tfidf_plot <- ggplot(tfidf_plot_data,
@@ -925,8 +990,8 @@ tfidf_plot <- ggplot(tfidf_plot_data,
   coord_flip() +
   scale_fill_manual(values = c("ADRD" = "#E74C3C", "CTRL" = "#3498DB")) +
   labs(
-    title = "Top 20 TF-IDF Terms by Class",
-    x = "Term",
+    title = "Top 20 TF-IDF Clinical Terms by Class",
+    x = "Clinical Term",
     y = "TF-IDF Weight",
     fill = "Class"
   ) +
