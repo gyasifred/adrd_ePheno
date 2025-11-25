@@ -112,23 +112,27 @@ add_title_slide(
 add_content_slide(prs, "Background & Motivation", [
     "Alzheimer's Disease and Related Dementias (ADRD) affect >6 million Americans",
     "Early detection critical for intervention and care planning",
-    "Challenge: Manual chart review time-intensive and inconsistent",
-    "Opportunity: Leverage unstructured clinical notes with deep learning",
-    "Gap: Limited research on algorithmic fairness across demographic groups",
-    "Need: Automated, accurate, and fair ePhenotyping system"
+    "Prior Work: Knox & Obeid developed ML models for ADRD detection",
+    "   • Trained 7 models (RF, SVM, CNN) on MUSC clinical notes",
+    "   • Strong overall performance demonstrated",
+    "",
+    "Gap: Limited evaluation of algorithmic fairness across demographics",
+    "Need: Comprehensive fairness analysis and feature interpretability"
 ])
 
 # SLIDE 3: Study Objectives
 add_content_slide(prs, "Study Objectives", [
-    "Aim 1: Develop CNN-based deep learning model for ADRD detection",
-    "   • Achieve high accuracy (>90%) and AUC (>0.95)",
-    "   • Evaluate performance across demographic subgroups",
-    "   • Assess algorithmic fairness (gender, race, ethnicity)",
+    "Building on Knox & Obeid's pre-trained CNN models",
     "",
-    "Aim 2: Identify discriminative clinical features",
-    "   • Extract top ADRD-indicative terms using NLP",
-    "   • Analyze demographic-specific feature patterns",
-    "   • Ensure model interpretability and clinical validity"
+    "Aim 1: Evaluate model performance differences across demographics",
+    "   • Assess performance across gender, race, ethnicity subgroups",
+    "   • Test algorithmic fairness using approximate randomization",
+    "   • Identify any systematic disparities in model predictions",
+    "",
+    "Aim 2: Identify cohort-specific discriminative features",
+    "   • Use Behavioral Testing to identify important features",
+    "   • Apply explainable AI approaches (Chi-squared, TF-IDF)",
+    "   • Analyze demographic-specific feature patterns"
 ])
 
 # SLIDE 4: Dataset Description
@@ -146,55 +150,71 @@ add_content_slide(prs, "Dataset Description", [
     "Notes: De-identified, preprocessed clinical documentation"
 ])
 
-# SLIDE 5: Methodology - Data Preprocessing
-add_content_slide(prs, "Methodology: Data Preprocessing", [
-    "Text Preprocessing Pipeline:",
-    "   • De-identification: Removed PHI (names, dates, MRNs, etc.)",
-    "   • Tokenization: Word-level segmentation",
-    "   • Stopword removal: English stopwords filtered",
-    "   • Artifact filtering: Masked tokens (_lgnum_, _decnum_, etc.)",
+# SLIDE 5: Methodology - Evaluation Dataset
+add_content_slide(prs, "Methodology: Evaluation Dataset", [
+    "Enhanced Dataset from Knox & Obeid Study:",
+    "   • Original: MUSC EHR clinical notes (pre-trained models)",
+    "   • Enhancement: Added Social Determinants of Health (SDoH) data",
+    "   • Source: MUSC Research Data Warehouse",
     "",
-    "Train-Test Split:",
-    "   • Minimal training set: 10 samples (model pre-trained)",
-    "   • Full evaluation set: 1,460 samples",
-    "   • Stratified by ADRD status to preserve class balance"
+    "Evaluation Cohort (N=1,460):",
+    "   • ADRD cases: 657 (45.0%)",
+    "   • Control cases: 803 (55.0%)",
+    "   • Comprehensive demographic information",
+    "   • De-identified clinical documentation"
 ])
 
-# SLIDE 6: Methodology - Model Architecture
-add_content_slide(prs, "Methodology: CNN Model Architecture", [
-    "Convolutional Neural Network (CNN) for text classification",
+# SLIDE 6: Methodology - Pre-trained CNN Model
+add_content_slide(prs, "Methodology: Pre-trained CNN Model", [
+    "Knox & Obeid's CNN Model (Previously Trained):",
+    "   • Trained on MUSC clinical notes",
+    "   • Convolutional Neural Network for text classification",
+    "   • Binary output: ADRD vs. Control",
     "",
-    "Architecture:",
-    "   • Embedding Layer: 300-dimensional word embeddings",
-    "   • Conv1D Layers: Multiple filter sizes (3, 4, 5)",
-    "   • Max Pooling: Captures most important features",
-    "   • Dense Layers: Fully connected with dropout (0.5)",
-    "   • Output: Binary classification (ADRD vs. Control)",
-    "",
-    "Training:",
-    "   • Optimizer: Adam with learning rate scheduling",
-    "   • Loss: Binary cross-entropy",
-    "   • Epochs: 10 cycles with early stopping"
+    "Our Evaluation Approach:",
+    "   • Applied pre-trained model to evaluation dataset",
+    "   • Generated predictions for 1,460 patients",
+    "   • 10 model cycles evaluated for stability",
+    "   • Selected best performing cycle (Cycle 9) based on median AUC"
 ])
 
-# SLIDE 7: Methodology - Fairness Analysis
-add_content_slide(prs, "Methodology: Fairness Analysis", [
+# SLIDE 7: Methodology - Fairness Evaluation (Aim 1)
+add_content_slide(prs, "Methodology: Fairness Evaluation (Aim 1)", [
     "Demographic Stratification:",
     "   • Evaluated performance across gender, race, ethnicity",
     "   • Intersectional analysis (Gender × Race combinations)",
+    "   • Minimum sample size requirements enforced (N≥10)",
     "",
-    "Fairness Metrics:",
-    "   • AUC variability across subgroups (threshold: ±0.05)",
-    "   • Sensitivity/specificity differences",
-    "   • Statistical significance testing (approximate randomization)",
+    "Statistical Testing - Approximate Randomization:",
+    "   • Permutation-based significance testing",
+    "   • 1,000 iterations for null distribution",
+    "   • Tests for AUC, sensitivity, specificity differences",
+    "   • Significance threshold: α=0.05",
     "",
-    "Feature Analysis:",
-    "   • Chi-squared (χ²) test for discriminative terms",
-    "   • TF-IDF weighting for feature importance",
-    "   • Demographic-stratified feature patterns"
+    "Fairness Criteria:",
+    "   • AUC parity: Variability within ±0.05 threshold",
+    "   • Equalized odds: Similar sensitivity/specificity across groups"
 ])
 
-# SLIDE 8: Results - Overall Model Performance
+# SLIDE 8: Methodology - Feature Analysis (Aim 2)
+add_content_slide(prs, "Methodology: Feature Analysis (Aim 2)", [
+    "Behavioral Testing Approach:",
+    "   • Systematic term removal from clinical notes",
+    "   • Measure impact on model predictions",
+    "   • Identify critical features for ADRD classification",
+    "",
+    "Statistical Feature Analysis:",
+    "   • Chi-squared (χ²) test for discriminative terms",
+    "   • FDR correction for multiple testing (Benjamini-Hochberg)",
+    "   • TF-IDF weighting for feature importance",
+    "",
+    "Demographic-Stratified Analysis:",
+    "   • Feature patterns across gender, race, ethnicity",
+    "   • Identify cohort-specific terminology differences",
+    "   • Assess feature consistency vs. variation"
+])
+
+# SLIDE 9: Results - Overall Model Performance
 add_content_slide(prs, "Results: Overall Model Performance", [
     "Best Model (Cycle 9) on Full Dataset (N=1,460):",
     "",
@@ -210,7 +230,7 @@ add_content_slide(prs, "Results: Overall Model Performance", [
     "Calibration: Brier Score=0.044, Log Loss=0.163 (excellent)"
 ])
 
-# SLIDE 9: Add ROC Curve
+# SLIDE 10: Add ROC Curve
 add_image_slide(
     prs,
     "Results: Receiver Operating Characteristic (ROC) Curve",
@@ -218,7 +238,7 @@ add_image_slide(
     "Figure 1: ROC curves across 10 model cycles showing consistently high AUC (>0.985)"
 )
 
-# SLIDE 10: Add Confusion Matrix
+# SLIDE 11: Add Confusion Matrix
 add_image_slide(
     prs,
     "Results: Confusion Matrix",
@@ -226,7 +246,7 @@ add_image_slide(
     "Figure 2: Confusion matrix showing excellent classification performance"
 )
 
-# SLIDE 11: Add Calibration Plot
+# SLIDE 12: Add Calibration Plot
 add_image_slide(
     prs,
     "Results: Calibration Plot",
@@ -234,8 +254,8 @@ add_image_slide(
     "Figure 3: Calibration curve demonstrating well-calibrated probability estimates"
 )
 
-# SLIDE 12: Results - Demographic Fairness
-add_content_slide(prs, "Results: Demographic Fairness Analysis", [
+# SLIDE 13: Results - Demographic Fairness (Aim 1)
+add_content_slide(prs, "Results: Demographic Fairness Analysis (Aim 1)", [
     "Performance by Gender:",
     "   • Female (N=828): AUC=0.987, Sensitivity=98.4%",
     "   • Male (N=632): AUC=0.987, Sensitivity=95.7%",
@@ -251,7 +271,7 @@ add_content_slide(prs, "Results: Demographic Fairness Analysis", [
     "   • Range: 0.007 across all intersections ✓"
 ])
 
-# SLIDE 13: Add Demographic Subgroup Performance
+# SLIDE 14: Add Demographic Subgroup Performance
 add_image_slide(
     prs,
     "Results: Performance Across Demographic Subgroups",
@@ -259,7 +279,7 @@ add_image_slide(
     "Figure 4: AUC across demographic subgroups showing equitable performance"
 )
 
-# SLIDE 14: Add Intersectional Heatmap
+# SLIDE 15: Add Intersectional Heatmap
 add_image_slide(
     prs,
     "Results: Intersectional Fairness Analysis",
@@ -267,7 +287,7 @@ add_image_slide(
     "Figure 5: Performance heatmap for Gender × Race intersections"
 )
 
-# SLIDE 15: Results - Feature Analysis (Aim 2)
+# SLIDE 16: Results - Feature Analysis (Aim 2)
 add_content_slide(prs, "Results: Discriminative Clinical Features (Aim 2)", [
     "Top ADRD-Associated Terms (χ² test, FDR<0.05):",
     "   • 'goal' (χ²=4,596), 'outcome' (χ²=4,377)",
@@ -281,8 +301,8 @@ add_content_slide(prs, "Results: Discriminative Clinical Features (Aim 2)", [
     "   • Consistent across demographic subgroups (70-90% overlap)"
 ])
 
-# SLIDE 16: Results - TF-IDF Analysis
-add_content_slide(prs, "Results: TF-IDF Feature Importance", [
+# SLIDE 17: Results - TF-IDF Analysis
+add_content_slide(prs, "Results: TF-IDF Feature Importance (Aim 2)", [
     "Top TF-IDF Terms for ADRD (clinically relevant):",
     "   • High specificity terms: 'dementia', 'cognitive', 'impaired'",
     "   • Care-related: 'discharge', 'admission', 'inpatient'",
@@ -297,24 +317,26 @@ add_content_slide(prs, "Results: TF-IDF Feature Importance", [
     "Finding: Feature patterns differ but performance remains equitable"
 ])
 
-# SLIDE 17: Discussion - Key Findings
+# SLIDE 18: Discussion - Key Findings
 add_content_slide(prs, "Discussion: Key Findings", [
-    "1. Exceptional Performance:",
-    "   • AUC=0.987 exceeds published benchmarks (0.92-0.95)",
-    "   • Outperforms traditional ML methods (SVM, Random Forest)",
+    "1. Exceptional Performance Maintained:",
+    "   • Knox & Obeid's CNN: AUC=0.987 on evaluation dataset",
+    "   • Consistent performance across 10 model cycles",
+    "   • Excellent calibration (Brier=0.044)",
     "",
-    "2. Algorithmic Fairness Achieved:",
+    "2. Algorithmic Fairness Confirmed (Aim 1):",
     "   • No significant disparities across gender, race, ethnicity",
-    "   • Performance variance within clinically acceptable ranges",
-    "   • Intersectional analysis confirms equitable outcomes",
+    "   • Approximate randomization tests: all p>0.05",
+    "   • Performance variance within ±0.05 AUC threshold",
+    "   • Intersectional analysis: equitable outcomes",
     "",
-    "3. Interpretable Features:",
+    "3. Interpretable Features Identified (Aim 2):",
     "   • Discriminative terms align with clinical knowledge",
-    "   • Feature patterns consistent across demographics",
-    "   • Model captures meaningful clinical language"
+    "   • Feature patterns consistent across demographics (70-90% overlap)",
+    "   • Behavioral testing validates feature importance"
 ])
 
-# SLIDE 18: Discussion - Clinical Implications
+# SLIDE 19: Discussion - Clinical Implications
 add_content_slide(prs, "Discussion: Clinical Implications", [
     "Potential Applications:",
     "   • Automated ADRD screening in large patient populations",
@@ -334,53 +356,57 @@ add_content_slide(prs, "Discussion: Clinical Implications", [
     "   • Framework for responsible AI deployment in healthcare"
 ])
 
-# SLIDE 19: Limitations
+# SLIDE 20: Limitations & Future Work
 add_content_slide(prs, "Limitations & Future Work", [
     "Study Limitations:",
-    "   • Single-site data (generalizability needs validation)",
+    "   • Single-site data (MUSC) - generalizability needs validation",
     "   • Small sample sizes for some demographic subgroups",
-    "   • Pre-trained model (limited training data shown)",
+    "   • Evaluation limited to one CNN model architecture",
     "   • Temporal validation not performed",
+    "   • No external validation dataset",
     "",
     "Future Directions:",
     "   • Multi-site external validation",
-    "   • Prospective clinical trial",
-    "   • Temporal validation across years",
-    "   • Integration with structured EHR data",
-    "   • LIME/SHAP explanations for individual predictions",
-    "   • Longitudinal progression modeling"
+    "   • Prospective clinical trial for real-world deployment",
+    "   • Temporal validation across different time periods",
+    "   • Compare fairness across multiple model architectures",
+    "   • Integration with structured EHR data (labs, vitals)",
+    "   • LIME/SHAP explanations for individual predictions"
 ])
 
-# SLIDE 20: Conclusions
+# SLIDE 21: Conclusions
 add_content_slide(prs, "Conclusions", [
-    "✓ Developed high-performing CNN model for ADRD detection",
+    "✓ Evaluated Knox & Obeid's CNN model on diverse cohort",
     "   (AUC=0.987, Sensitivity=97.3%, Specificity=91.8%)",
     "",
-    "✓ Demonstrated algorithmic fairness across demographics",
-    "   (No significant disparities in gender, race, ethnicity)",
+    "✓ Confirmed algorithmic fairness across demographics (Aim 1)",
+    "   (Approximate randomization: no significant disparities)",
+    "   (Performance variance within ±0.05 AUC threshold)",
     "",
-    "✓ Identified clinically meaningful discriminative features",
-    "   (Consistent patterns across demographic subgroups)",
+    "✓ Identified interpretable discriminative features (Aim 2)",
+    "   (Behavioral testing + statistical feature analysis)",
+    "   (70-90% feature consistency across demographic groups)",
     "",
-    "Impact:",
-    "   • Scalable automated ADRD screening from clinical notes",
-    "   • Fair and equitable performance for diverse populations",
-    "   • Framework for ethical AI deployment in healthcare",
-    "",
-    "Next Steps: Multi-site validation and clinical implementation"
+    "Contributions:",
+    "   • Rigorous fairness evaluation framework for ADRD models",
+    "   • Evidence of equitable performance across diverse populations",
+    "   • Explainable AI approach for clinical feature validation"
 ])
 
-# SLIDE 21: Acknowledgments
+# SLIDE 22: Acknowledgments
 add_content_slide(prs, "Acknowledgments", [
     "Study Team:",
-    "   • Frederick Gyasi - Lead Investigator",
-    "   • Jihad Obeid - Model Development",
+    "   • Frederick Gyasi - Principal Investigator",
+    "   • Jihad Obeid - Co-Investigator",
+    "",
+    "Prior Work:",
+    "   • Knox & Obeid - Original CNN model development",
     "",
     "Funding:",
     "   • [Your Funding Source]",
     "",
     "Data:",
-    "   • [Your Institution] Electronic Health Records",
+    "   • MUSC Research Data Warehouse",
     "",
     "IRB Approval:",
     "   • Protocol #[Number]",

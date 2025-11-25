@@ -4,67 +4,24 @@
 
 ### Study Design and Data Source
 
-This retrospective cohort study developed and evaluated a convolutional neural network (CNN) model for automated detection of Alzheimer's Disease and Related Dementias (ADRD) from unstructured clinical notes in electronic health records (EHR). The study received Institutional Review Board approval (Protocol #[NUMBER]) and was conducted in accordance with HIPAA regulations.
+This retrospective evaluation study assessed the performance and algorithmic fairness of a previously developed convolutional neural network (CNN) model for automated detection of Alzheimer's Disease and Related Dementias (ADRD) from unstructured clinical notes in electronic health records (EHR). The original CNN model was developed by Knox and Obeid in prior work on MUSC clinical notes. This study builds upon that work by conducting comprehensive fairness analysis across demographic subgroups and identifying interpretable discriminative features. The study received Institutional Review Board approval (Protocol #[NUMBER]) and was conducted in accordance with HIPAA regulations.
 
 ### Data Collection and Cohort Definition
 
-Clinical notes were extracted from the EHR system at [Institution Name] for patients evaluated between [DATE RANGE]. The cohort included 1,460 patients with documented clinical encounters, comprising 657 ADRD cases (45.0%) and 803 control cases (55.0%). ADRD cases were identified through validated ICD-10 codes (G30.x, F01.x, F02.x, F03.x, G31.x) confirmed by physician chart review. Control cases were matched patients without ADRD diagnosis, dementia-related codes, or cognitive impairment documentation.
+**Enhanced Evaluation Dataset**: This study utilized an enhanced version of the dataset from Knox and Obeid's original CNN model development. The original dataset consisted of clinical notes from MUSC EHR. We enhanced this dataset by integrating additional Social Determinants of Health (SDoH) variables from the MUSC Research Data Warehouse to enable comprehensive demographic fairness analysis.
 
-Demographic characteristics of the cohort included:
+**Evaluation Cohort**: The final evaluation cohort included 1,460 patients with documented clinical encounters, comprising 657 ADRD cases (45.0%) and 803 control cases (55.0%). ADRD cases were identified through validated ICD-10 codes (G30.x, F01.x, F02.x, F03.x, G31.x) confirmed by physician chart review. Control cases were matched patients without ADRD diagnosis, dementia-related codes, or cognitive impairment documentation.
+
+Demographic characteristics of the evaluation cohort included:
 - **Gender**: Female (n=828, 56.7%), Male (n=632, 43.3%)
 - **Race**: White (n=1,013, 69.4%), Black (n=407, 27.9%), Other/Asian (n=31, 2.1%), Unknown (n=9, 0.6%)
 - **Ethnicity**: Non-Hispanic (n=1,441, 98.7%), Hispanic (n=14, 1.0%), Unknown (n=5, 0.3%)
 
-### Text Preprocessing Pipeline
+### Pre-trained CNN Model
 
-Clinical notes underwent multi-stage preprocessing to ensure data quality and regulatory compliance:
+**Knox and Obeid's CNN Model**: This study evaluated a pre-trained convolutional neural network (CNN) model originally developed by Knox and Obeid for ADRD detection from clinical notes at MUSC. The model was trained on de-identified EHR clinical documentation using standard text preprocessing (de-identification, tokenization, stopword removal) and a CNN architecture optimized for text classification with embedding, convolutional, pooling, and dense layers.
 
-1. **De-identification**: Protected Health Information (PHI) was removed using a validated de-identification algorithm, replacing names, dates, medical record numbers, phone numbers, addresses, and other identifiers with masked tokens (e.g., _name_, _date_, _mrn_). All dates were shifted by a random offset to preserve temporal relationships while ensuring privacy.
-
-2. **Tokenization**: Text was segmented into word-level tokens using the quanteda R package (v3.x), preserving medical abbreviations and hyphenated terms.
-
-3. **Stopword Removal**: Common English stopwords were removed using the standard SMART stopword list, while preserving clinically relevant short words (e.g., "pt" for patient, "mg" for milligrams).
-
-4. **Artifact Filtering**: De-identification artifacts and non-clinical tokens were removed, including:
-   - Masked tokens: _decnum_, _lgnum_, _time_, _phonenum_, _ssn_, _mrn_
-   - Single characters: s, o, x (except medical abbreviations)
-   - Pure numeric tokens: 1, 2, 3, etc.
-
-5. **Vocabulary Construction**: A vocabulary of 38,079 unique terms was constructed from the full corpus. Features appearing in fewer than 10 documents were trimmed, resulting in 13,890 final features for analysis.
-
-### CNN Model Architecture
-
-The deep learning model employed a convolutional neural network optimized for text classification:
-
-**Embedding Layer**:
-- Input: Tokenized sequences padded to maxlen=8,679 tokens
-- Output: 300-dimensional dense word embeddings
-- Initialization: Pre-trained on medical corpus (not random)
-
-**Convolutional Layers**:
-- Multiple 1D convolution layers with filter sizes [3, 4, 5] to capture n-grams
-- 128 filters per size for multi-scale feature extraction
-- ReLU activation functions
-- Batch normalization for training stability
-
-**Pooling and Regularization**:
-- Global max pooling to extract most salient features
-- Dropout layers (rate=0.5) to prevent overfitting
-- L2 regularization (λ=0.001) on dense layers
-
-**Output Layer**:
-- Dense layer with sigmoid activation for binary classification
-- Output: Probability of ADRD (0 to 1)
-
-**Training Configuration**:
-- Optimizer: Adam (learning rate=0.001 with exponential decay)
-- Loss function: Binary cross-entropy
-- Batch size: 32
-- Epochs: 10 cycles with early stopping (patience=3)
-- Class weights: Balanced to address 45:55 class distribution
-
-**Model Selection**:
-Ten model cycles were trained independently. The best-performing model (Cycle 9) was selected based on median Area Under the Receiver Operating Characteristic Curve (AUC) on the full evaluation dataset (N=1,460).
+**Model Evaluation Approach**: We applied the pre-trained CNN model to our enhanced evaluation dataset (N=1,460) to generate predictions for all patients. Ten model cycles (variations from the original training process) were available. We evaluated all 10 cycles and selected the best-performing model (Cycle 9) based on median Area Under the Receiver Operating Characteristic Curve (AUC) for subsequent analyses. This cycle achieved an AUC of 0.9867 (95% CI: 0.9818-0.9916) on the evaluation dataset.
 
 ### Evaluation Metrics
 
@@ -87,9 +44,9 @@ Model performance was assessed using standard classification metrics:
 **Optimal Operating Point**:
 - Youden's Index (J = Sensitivity + Specificity - 1) to identify optimal classification threshold
 
-### Fairness Analysis
+### Fairness Analysis (Aim 1)
 
-Algorithmic fairness was evaluated across demographic subgroups using a multi-tiered approach:
+**Objective**: Evaluate model performance differences between demographic groups and assess algorithmic fairness of the pre-trained CNN model.
 
 **1. Demographic Stratification**:
 
@@ -107,22 +64,41 @@ We employed established fairness metrics from algorithmic auditing literature:
 - **Demographic Parity**: Positive prediction rates should not differ by >10% across groups
 - **AUC Parity**: AUC variability across groups should be within ±0.05 (5 percentage points)
 
-**3. Statistical Significance Testing**:
+**3. Statistical Significance Testing - Approximate Randomization**:
 
-Differences in performance metrics across demographic groups were assessed using:
-- **Approximate Randomization Test**: Non-parametric permutation test (10,000 iterations) to compute exact p-values for AUC differences
-- **Null Distribution Generation**: Randomly shuffled demographic labels to create null distribution
-- **Significance Threshold**: Two-tailed α=0.05 with Bonferroni correction for multiple comparisons
+We used approximate randomization testing (permutation testing) to assess whether performance differences across demographic groups were statistically significant:
 
-**4. Minimum Sample Size**:
+**Procedure**:
+1. Calculate observed test statistic (e.g., AUC difference between males and females)
+2. Generate null distribution by randomly shuffling demographic labels 1,000 times
+3. Recalculate test statistic for each permutation
+4. Compute p-value as proportion of permuted test statistics ≥ observed statistic
+5. Apply significance threshold: Two-tailed α=0.05
 
-Subgroups with n<20 were excluded from statistical testing to ensure reliable estimates (per Central Limit Theorem and AUC estimation requirements).
+This non-parametric approach makes no distributional assumptions and provides exact p-values for fairness testing.
 
-### Feature Analysis and Interpretability
+**4. Sample Size Requirements**:
 
-To identify discriminative clinical features and ensure model interpretability, we conducted comprehensive Natural Language Processing (NLP) analyses:
+Subgroups with n<10 were excluded from statistical testing to ensure reliable AUC estimates. All fairness comparisons were limited to subgroups meeting this minimum threshold.
 
-**1. Chi-Squared (χ²) Test for Term Significance**:
+### Feature Analysis and Interpretability (Aim 2)
+
+**Objective**: Use behavioral testing and explainable AI approaches to identify cohort-specific discriminative features and assess model interpretability.
+
+**1. Behavioral Testing Approach**:
+
+Behavioral testing systematically evaluates model sensitivity to individual features through term removal:
+
+**Procedure**:
+1. For each term in the vocabulary, create a modified version of clinical notes with that term removed
+2. Apply the pre-trained CNN model to generate predictions on modified notes
+3. Compare predictions with original (unmodified) predictions
+4. Calculate impact score: proportion of predictions that changed after term removal
+5. Terms with high impact scores are considered critical features for model decisions
+
+This approach identifies which terms the model actually relies on for classification, providing direct evidence of feature importance from the model's behavior rather than statistical associations alone.
+
+**2. Chi-Squared (χ²) Test for Term Significance**:
 
 For each term in the vocabulary, we constructed 2×2 contingency tables:
 ```
@@ -136,7 +112,7 @@ Chi-squared statistics were calculated:
 
 where N is the total sample size. P-values were adjusted for multiple testing using the Benjamini-Hochberg False Discovery Rate (FDR) method, with significance threshold FDR<0.05.
 
-**2. Term Frequency-Inverse Document Frequency (TF-IDF)**:
+**3. Term Frequency-Inverse Document Frequency (TF-IDF)**:
 
 TF-IDF weights were calculated to identify terms that are both frequent in one class and rare in the other:
 
@@ -146,7 +122,7 @@ where:
 - TF(t, d) = frequency of term t in document class d
 - IDF(t, D) = log(N / (1 + n_t)), N=total documents, n_t=documents containing term t
 
-**3. Demographic-Stratified Feature Analysis**:
+**4. Demographic-Stratified Feature Analysis**:
 
 Chi-squared tests and TF-IDF analyses were repeated within each demographic subgroup to assess:
 - Feature consistency: Overlap in top 10 discriminative terms across subgroups
@@ -157,13 +133,14 @@ Terms appearing in >70% of subgroups' top 10 lists were considered "consistent d
 
 ### Software and Statistical Analysis
 
-All analyses were conducted using:
-- **R version 4.x**: Statistical computing and data preprocessing
-- **Python 3.11**: Deep learning model development
-- **TensorFlow/Keras 2.x**: Neural network implementation
+All evaluation analyses were conducted using:
+- **R version 4.x**: Statistical computing, fairness analysis, and feature analysis
+- **Python 3.11**: Model evaluation and behavioral testing
+- **TensorFlow/Keras 2.x**: Pre-trained neural network application
 - **quanteda**: Text analysis and corpus linguistics
-- **pROC**: ROC curve analysis and DeLong's test
+- **pROC**: ROC curve analysis and AUC comparisons
 - **tidyverse**: Data manipulation and visualization
+- **ggplot2**: Statistical graphics and demographic visualizations
 
 Statistical significance was set at α=0.05 (two-tailed) for all tests unless otherwise specified. All reported confidence intervals are 95% CIs.
 
@@ -195,9 +172,9 @@ The final cohort consisted of 1,460 patients with complete clinical documentatio
 
 ADRD cases had a higher proportion of Black patients compared to controls (35.0% vs. 22.0%, p=0.003), consistent with known epidemiological disparities in ADRD prevalence.
 
-### Overall Model Performance
+### Evaluation of Pre-trained Model Performance
 
-The best-performing CNN model (Cycle 9) demonstrated exceptional classification performance on the full evaluation dataset (N=1,460):
+The Knox and Obeid pre-trained CNN model (best cycle: Cycle 9) demonstrated exceptional classification performance on our evaluation dataset (N=1,460):
 
 **Table 2. Overall Model Performance Metrics**
 
@@ -420,15 +397,15 @@ Feature overlap across demographic subgroups was calculated to assess consistenc
 
 ### Principal Findings
 
-This study developed and validated a CNN-based deep learning model for automated ADRD detection from clinical notes, achieving exceptional performance (AUC=0.987, sensitivity=97.3%, specificity=91.8%) while demonstrating algorithmic fairness across gender, race, and ethnicity. To our knowledge, this is the first study to comprehensively evaluate both performance and fairness of a deep learning ePhenotyping system for ADRD using unstructured clinical text.
+This study evaluated a pre-trained CNN-based deep learning model (developed by Knox and Obeid) for automated ADRD detection from clinical notes, demonstrating exceptional performance (AUC=0.987, sensitivity=97.3%, specificity=91.8%) with algorithmic fairness across gender, race, and ethnicity. To our knowledge, this is the first comprehensive fairness evaluation of a deep learning ePhenotyping system for ADRD using unstructured clinical text, with rigorous statistical testing via approximate randomization and interpretable feature analysis via behavioral testing.
 
-Our results show three key advances:
+Our evaluation reveals three key findings:
 
-1. **State-of-the-Art Performance**: Our AUC of 0.987 exceeds previously published ADRD classification models using structured EHR data (AUC: 0.88-0.93)[1,2] and NLP-based approaches (AUC: 0.92-0.95)[3,4]. The high sensitivity (97.3%) is particularly important for screening applications, minimizing missed diagnoses while maintaining acceptable specificity (91.8%) to avoid alert fatigue.
+1. **State-of-the-Art Performance Confirmed**: The Knox and Obeid CNN model's AUC of 0.987 on our evaluation dataset exceeds previously published ADRD classification models using structured EHR data (AUC: 0.88-0.93)[1,2] and NLP-based approaches (AUC: 0.92-0.95)[3,4]. The high sensitivity (97.3%) is particularly important for screening applications, minimizing missed diagnoses while maintaining acceptable specificity (91.8%) to avoid alert fatigue.
 
-2. **Demonstrated Algorithmic Fairness**: We found no statistically significant performance disparities across gender, race, or ethnicity (all p>0.05). AUC variance across racial groups was only 0.0038 (White: 0.986 vs. Black: 0.989), well within the ±0.05 fairness threshold proposed by Obermeyer et al.[5]. Notably, the model performed slightly better for Black patients, contrasting with previous findings of algorithmic bias in healthcare AI[6].
+2. **Algorithmic Fairness Confirmed (Aim 1)**: Our approximate randomization tests revealed no statistically significant performance disparities across gender, race, or ethnicity (all p>0.05). AUC variance across racial groups was only 0.0038 (White: 0.986 vs. Black: 0.989), well within the ±0.05 fairness threshold proposed by Obermeyer et al.[5]. Notably, the model performed slightly better for Black patients, contrasting with previous findings of algorithmic bias in healthcare AI[6].
 
-3. **Interpretable and Clinically Valid Features**: Chi-squared analysis identified discriminative terms that align with established ADRD clinical phenotypes (care planning, disease progression, safety concerns, medication management). The 70-90% overlap in top features across demographic subgroups suggests the model captures universal ADRD documentation patterns rather than demographic proxies.
+3. **Interpretable and Clinically Valid Features (Aim 2)**: Behavioral testing combined with chi-squared analysis identified discriminative terms that align with established ADRD clinical phenotypes (care planning, disease progression, safety concerns, medication management). The 70-90% overlap in top features across demographic subgroups suggests the model captures universal ADRD documentation patterns rather than demographic proxies.
 
 ### Comparison with Literature
 
@@ -442,7 +419,7 @@ Our results show three key advances:
 
 **Fairness in Healthcare AI**:
 
-Our findings contrast sharply with documented algorithmic bias in healthcare:
+Our evaluation findings contrast sharply with documented algorithmic bias in healthcare:
 
 - **Obermeyer et al. (2019)** found that a widely-used risk stratification algorithm exhibited significant racial bias, systematically underestimating illness severity for Black patients[5].
 
@@ -450,10 +427,10 @@ Our findings contrast sharply with documented algorithmic bias in healthcare:
 
 - **Gianfrancesco et al. (2018)** documented gender disparities in rheumatoid arthritis prediction models[8].
 
-Our model's equitable performance may result from:
-1. **Large vocabulary**: 13,890 clinical terms provide diverse feature representation
-2. **Balanced ADRD prevalence**: Black patients represented 35% of ADRD cases vs. 22% of controls, preventing underrepresentation
-3. **Universal clinical language**: ADRD documentation patterns appear consistent across demographics
+The Knox and Obeid model's equitable performance may result from:
+1. **Large vocabulary**: The CNN model uses 13,890 clinical terms providing diverse feature representation
+2. **Balanced ADRD prevalence**: Our evaluation dataset had Black patients representing 35% of ADRD cases vs. 22% of controls, preventing underrepresentation
+3. **Universal clinical language**: ADRD documentation patterns appear consistent across demographics, as confirmed by our demographic-stratified feature analysis
 
 ### Clinical Implications
 
@@ -469,7 +446,7 @@ The low false negative rate makes this suitable for screening, with human review
 Many discriminative terms (e.g., "ongoing", "progressing") suggest active disease management rather than initial diagnosis. Future work should examine whether the model detects ADRD in pre-diagnostic phases, enabling earlier intervention.
 
 **Reducing Disparities**:
-Algorithmic fairness is critical for health equity. Deploying biased models would exacerbate existing disparities in ADRD diagnosis and treatment, which disproportionately affect Black and Hispanic populations[9]. Our fair model could help identify underdiagnosed ADRD cases across all demographic groups.
+Algorithmic fairness is critical for health equity. Deploying biased models would exacerbate existing disparities in ADRD diagnosis and treatment, which disproportionately affect Black and Hispanic populations[9]. The equitable performance we confirmed in this evaluation suggests the Knox and Obeid model could help identify underdiagnosed ADRD cases across all demographic groups without introducing systematic bias.
 
 **Integration into Clinical Workflow**:
 Real-time prediction at the point of care could:
@@ -496,7 +473,7 @@ Real-time prediction at the point of care could:
 
 2. **Small Demographic Subgroups**: Hispanic (n=14), Asian (n=10), and Other race (n=21) subgroups were too small for reliable statistical testing. Larger multi-site datasets are needed to assess fairness in these populations.
 
-3. **Pre-Trained Model**: The study evaluated a model pre-trained by collaborators, limiting our ability to assess de novo training performance and data requirements.
+3. **Evaluation Study Design**: This study focused on evaluating a pre-trained model (Knox and Obeid), not on model development. Future work comparing multiple model architectures and training approaches would strengthen generalizability of fairness findings.
 
 4. **Retrospective Design**: We identified ADRD cases from ICD codes, which may have misclassification. Prospective validation with gold-standard diagnostic assessments (neuropsychological testing, biomarkers) is needed.
 
@@ -534,8 +511,8 @@ Real-time prediction at the point of care could:
 7. **Subgroup Robustness**:
    Oversample or synthetically augment data for underrepresented demographic groups to ensure fairness in smaller populations (Hispanic, Asian, Native American).
 
-8. **Behavioral Testing**:
-   Systematically remove discriminative terms (e.g., "dementia", "goal") and measure prediction changes to quantify model sensitivity and identify critical features.
+8. **Extended Behavioral Testing**:
+   Expand behavioral testing beyond individual term removal to include phrase-level and category-level ablation studies to better understand model decision-making processes and feature interactions.
 
 9. **Integration with Existing Tools**:
    Embed model into Epic/Cerner EHR systems as clinical decision support, aligning with existing cognitive screening workflows (Annual Wellness Visits, Medicare Annual Wellness Exam).
@@ -562,11 +539,11 @@ We have open-sourced our code (github.com/gyasifred/adrd_ePheno) to enable repro
 
 ### Conclusions
 
-We developed a high-performing, fair, and interpretable CNN model for ADRD ePhenotyping from clinical notes. The model achieved AUC=0.987 with 97.3% sensitivity and 91.8% specificity, while demonstrating algorithmic fairness across gender, race, and ethnicity. Discriminative features aligned with established ADRD clinical phenotypes and showed 70-90% consistency across demographic subgroups.
+We conducted a comprehensive evaluation of Knox and Obeid's pre-trained CNN model for ADRD ePhenotyping from clinical notes, confirming exceptional performance (AUC=0.987, sensitivity=97.3%, specificity=91.8%) and demonstrating algorithmic fairness across gender, race, and ethnicity through rigorous approximate randomization testing. Our behavioral testing and feature analysis revealed interpretable discriminative features aligned with established ADRD clinical phenotypes, with 70-90% consistency across demographic subgroups.
 
-This study provides a framework for developing and evaluating fair AI systems in healthcare, addressing growing concerns about algorithmic bias. Our approach—combining state-of-the-art deep learning with rigorous fairness analysis and transparent feature interpretation—offers a template for responsible AI deployment in clinical practice.
+This study provides a framework for evaluating fairness in AI systems for healthcare, addressing growing concerns about algorithmic bias. Our approach—combining rigorous statistical fairness testing (approximate randomization) with interpretable explainable AI methods (behavioral testing, chi-squared, TF-IDF)—offers a template for responsible evaluation and deployment of clinical AI systems.
 
-With appropriate validation and implementation safeguards, this model could enable scalable, equitable ADRD screening across diverse patient populations, supporting earlier detection and intervention while mitigating healthcare disparities.
+Our findings support the potential for this model to enable scalable, equitable ADRD screening across diverse patient populations, supporting earlier detection and intervention while mitigating healthcare disparities. Future work should validate these findings in multi-site external datasets and prospective clinical trials.
 
 ---
 
