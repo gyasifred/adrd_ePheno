@@ -511,6 +511,265 @@ write_csv(tfidf_results,
 cat("TF-IDF results saved\n\n")
 
 # ==============================================================================
+# PART 4B: DEMOGRAPHIC-STRATIFIED TF-IDF ANALYSIS
+# ==============================================================================
+# PURPOSE: Compare TF-IDF patterns across demographic subgroups to identify
+#          which clinical phrases drive performance differences
+# METHOD:  Calculate TF-IDF for correctly vs incorrectly classified patients
+#          within each demographic group, then compare "keyness" terms
+# ==============================================================================
+
+cat(strrep("=", 80) %+% "\n")
+cat("PART 4B: Demographic-Stratified TF-IDF Analysis\n")
+cat(strrep("=", 80) %+% "\n\n")
+
+cat("Analyzing TF-IDF patterns across demographic subgroups...\n\n")
+
+# TF-IDF EXPLANATION (for Methods section):
+# - Term Frequency (TF): How often a term appears in a document/subgroup
+# - Inverse Document Frequency (IDF): How unique/rare a term is across corpus
+# - TF-IDF = TF × IDF (high score = important AND distinctive)
+# - Used to identify discriminative clinical phrases by demographic subgroup
+# - High TF-IDF = term appears frequently in one subgroup but rarely in others
+
+# Check if we have predictions and demographic variables
+if (is.null(predictions)) {
+  cat("⚠️  Predictions not available. Skipping demographic TF-IDF analysis.\n\n")
+} else {
+
+  # Merge predictions with full corpus data
+  full_corpus_with_preds <- full_corpus %>%
+    left_join(predictions %>% select(DE_ID, predicted_class, predicted_prob),
+              by = "DE_ID")
+
+  # Check for demographic variables
+  demo_vars_tfidf <- c()
+  for (demo in c("GENDER", "RACE", "HISPANIC")) {
+    if (demo %in% names(full_corpus_with_preds)) {
+      demo_vars_tfidf <- c(demo_vars_tfidf, demo)
+      cat("  Found demographic variable:", demo, "\n")
+    }
+  }
+
+  if (length(demo_vars_tfidf) == 0) {
+    cat("\n⚠️  No demographic variables found.\n")
+    cat("   Demographic TF-IDF analysis will be skipped.\n\n")
+  } else {
+    cat("\nDemographic variables available:", paste(demo_vars_tfidf, collapse = ", "), "\n\n")
+
+    # Storage for demographic-stratified TF-IDF results
+    demo_tfidf_results <- list()
+    demo_tfidf_comparison <- list()
+
+    # Analyze for each demographic variable
+    for (demo_var in demo_vars_tfidf) {
+
+      cat(strrep("-", 80) %+% "\n")
+      cat("Analyzing TF-IDF for:", demo_var, "\n")
+      cat(strrep("-", 80) %+% "\n\n")
+
+      # Normalize demographic values
+      if (demo_var == "GENDER") {
+        full_corpus_with_preds <- full_corpus_with_preds %>%
+          mutate(GENDER = case_when(
+            toupper(GENDER) %in% c("FEMALE", "F") ~ "Female",
+            toupper(GENDER) %in% c("MALE", "M") ~ "Male",
+            TRUE ~ GENDER
+          ))
+      }
+
+      # Get unique demographic values (exclude NA, empty, UNKNOWN)
+      demo_values <- full_corpus_with_preds %>%
+        filter(!is.na(.data[[demo_var]]),
+               .data[[demo_var]] != "",
+               .data[[demo_var]] != "UNKNOWN") %>%
+        pull(.data[[demo_var]]) %>%
+        unique()
+
+      cat("Subgroups:", paste(demo_values, collapse = ", "), "\n\n")
+
+      # For each demographic subgroup, calculate TF-IDF for correct vs incorrect
+      demo_var_tfidf <- list()
+
+      for (demo_val in demo_values) {
+
+        # Filter to this demographic subgroup
+        subgroup_data <- full_corpus_with_preds %>%
+          filter(.data[[demo_var]] == demo_val,
+                 partition == "test")  # Only test set has predictions
+
+        # Create classification correctness indicator
+        subgroup_data <- subgroup_data %>%
+          mutate(correct = (predicted_class == label))
+
+        # Check minimum sample sizes
+        n_correct <- sum(subgroup_data$correct, na.rm = TRUE)
+        n_incorrect <- sum(!subgroup_data$correct, na.rm = TRUE)
+
+        if (n_correct < 20 || n_incorrect < 20) {
+          cat("  Skipping", demo_val,
+              "(insufficient samples: Correct=", n_correct,
+              ", Incorrect=", n_incorrect, ")\n")
+          next
+        }
+
+        cat("  Analyzing", demo_val,
+            "(N =", nrow(subgroup_data),
+            ": Correct=", n_correct,
+            ", Incorrect=", n_incorrect, ")\n")
+
+        # Create corpus for this subgroup
+        sub_corpus <- corpus(subgroup_data,
+                            text_field = "txt",
+                            docid_field = "DE_ID")
+        docvars(sub_corpus, "correct_str") <- ifelse(subgroup_data$correct,
+                                                     "Correct",
+                                                     "Incorrect")
+
+        # Tokenize and create DFM
+        sub_tokens <- tokens(sub_corpus,
+                            remove_punct = TRUE,
+                            remove_symbols = TRUE,
+                            remove_numbers = TRUE) %>%
+          tokens_tolower() %>%
+          tokens_remove(pattern = stopwords("en"))
+
+        sub_dfm <- dfm(sub_tokens) %>%
+          dfm_trim(min_termfreq = 5, min_docfreq = 3)
+
+        # Group by correctness
+        sub_dfm_grouped <- dfm_group(sub_dfm, groups = correct_str)
+
+        # Calculate TF-IDF
+        sub_tfidf <- dfm_tfidf(sub_dfm_grouped)
+
+        # Extract top TF-IDF terms
+        tryCatch({
+          if ("Correct" %in% docid(sub_tfidf)) {
+            top_correct <- topfeatures(sub_tfidf[docid(sub_tfidf) == "Correct", ],
+                                      n = 50)
+          } else {
+            top_correct <- numeric(0)
+          }
+
+          if ("Incorrect" %in% docid(sub_tfidf)) {
+            top_incorrect <- topfeatures(sub_tfidf[docid(sub_tfidf) == "Incorrect", ],
+                                        n = 50)
+          } else {
+            top_incorrect <- numeric(0)
+          }
+
+          # Store results
+          demo_var_tfidf[[demo_val]] <- list(
+            correct = top_correct,
+            incorrect = top_incorrect,
+            n_correct = n_correct,
+            n_incorrect = n_incorrect
+          )
+
+          cat("    Top 10 TF-IDF terms for Correct classifications:\n")
+          if (length(top_correct) > 0) {
+            print(head(top_correct, 10))
+          } else {
+            cat("      (none)\n")
+          }
+          cat("\n")
+
+          cat("    Top 10 TF-IDF terms for Incorrect classifications:\n")
+          if (length(top_incorrect) > 0) {
+            print(head(top_incorrect, 10))
+          } else {
+            cat("      (none)\n")
+          }
+          cat("\n\n")
+
+        }, error = function(e) {
+          cat("    Error calculating TF-IDF:", e$message, "\n\n")
+        })
+      }
+
+      # Store results for this demographic variable
+      demo_tfidf_results[[demo_var]] <- demo_var_tfidf
+
+      # Create comparison table for this demographic variable
+      comparison_rows <- list()
+
+      for (demo_val in names(demo_var_tfidf)) {
+        result <- demo_var_tfidf[[demo_val]]
+
+        # Get top 20 terms for each
+        n_terms <- min(20, length(result$correct), length(result$incorrect))
+
+        if (n_terms > 0) {
+          comparison_rows[[demo_val]] <- data.frame(
+            demographic = demo_var,
+            subgroup = demo_val,
+            classification = rep(c("Correct", "Incorrect"), each = n_terms),
+            term = c(names(result$correct)[1:n_terms],
+                    names(result$incorrect)[1:n_terms]),
+            tfidf_score = c(as.numeric(result$correct)[1:n_terms],
+                           as.numeric(result$incorrect)[1:n_terms]),
+            stringsAsFactors = FALSE
+          )
+        }
+      }
+
+      if (length(comparison_rows) > 0) {
+        demo_var_comparison <- bind_rows(comparison_rows)
+        demo_tfidf_comparison[[demo_var]] <- demo_var_comparison
+      }
+    }
+
+    # Save results
+    saveRDS(demo_tfidf_results,
+            file.path(AIM2_RESULTS_DIR, "demographic_tfidf_stratified.rds"))
+    cat("Demographic-stratified TF-IDF results saved to RDS\n")
+
+    # Save comparison tables
+    if (length(demo_tfidf_comparison) > 0) {
+      all_comparisons <- bind_rows(demo_tfidf_comparison)
+      write_csv(all_comparisons,
+                file.path(AIM2_RESULTS_DIR, "demographic_tfidf_comparison.csv"))
+      cat("TF-IDF comparison table saved to CSV\n\n")
+
+      # Create summary statistics
+      cat("Summary: Terms unique to correct vs incorrect classifications by demographic\n")
+      cat(strrep("-", 80) %+% "\n")
+
+      for (demo_var in names(demo_tfidf_comparison)) {
+        cat("\n", demo_var, ":\n", sep = "")
+
+        demo_data <- demo_tfidf_comparison[[demo_var]]
+
+        for (subgroup in unique(demo_data$subgroup)) {
+          subgroup_data <- demo_data %>% filter(subgroup == !!subgroup)
+
+          correct_terms <- subgroup_data %>%
+            filter(classification == "Correct") %>%
+            pull(term)
+
+          incorrect_terms <- subgroup_data %>%
+            filter(classification == "Incorrect") %>%
+            pull(term)
+
+          unique_to_correct <- setdiff(correct_terms, incorrect_terms)
+          unique_to_incorrect <- setdiff(incorrect_terms, correct_terms)
+          overlapping <- intersect(correct_terms, incorrect_terms)
+
+          cat("  ", subgroup, ":\n", sep = "")
+          cat("    Terms unique to Correct: ", length(unique_to_correct), "\n")
+          cat("    Terms unique to Incorrect: ", length(unique_to_incorrect), "\n")
+          cat("    Overlapping terms: ", length(overlapping), "\n")
+        }
+      }
+      cat("\n")
+    }
+  }
+}
+
+cat("Demographic-stratified TF-IDF analysis complete\n\n")
+
+# ==============================================================================
 # PART 5: VISUALIZATIONS
 # ==============================================================================
 
@@ -672,6 +931,201 @@ tfidf_plot <- ggplot(tfidf_plot_data,
 ggsave(file.path(AIM2_FIGURES_DIR, "tfidf_comparison.png"),
        plot = tfidf_plot, width = 14, height = 8, dpi = 300)
 cat("  TF-IDF plot saved\n\n")
+
+# 5. Demographic-Stratified TF-IDF Visualizations
+cat("Creating demographic-stratified TF-IDF visualizations...\n")
+
+# Check if demographic TF-IDF analysis was performed
+if (exists("demo_tfidf_comparison") && length(demo_tfidf_comparison) > 0) {
+
+  # For each demographic variable, create visualizations
+  for (demo_var in names(demo_tfidf_comparison)) {
+
+    demo_data <- demo_tfidf_comparison[[demo_var]]
+
+    # 5a. TF-IDF Heatmap by Demographic Subgroup
+    cat("  Creating TF-IDF heatmap for", demo_var, "...\n")
+
+    # Get top terms across all subgroups for this demographic
+    top_terms_demo <- demo_data %>%
+      group_by(term) %>%
+      summarize(mean_tfidf = mean(tfidf_score, na.rm = TRUE), .groups = "drop") %>%
+      arrange(desc(mean_tfidf)) %>%
+      head(30) %>%
+      pull(term)
+
+    # Create matrix for heatmap
+    heatmap_data <- demo_data %>%
+      filter(term %in% top_terms_demo) %>%
+      mutate(
+        subgroup_class = paste0(subgroup, "_", classification)
+      ) %>%
+      select(term, subgroup_class, tfidf_score)
+
+    # Create heatmap
+    if (nrow(heatmap_data) > 0) {
+      tfidf_heatmap <- ggplot(heatmap_data,
+                              aes(x = subgroup_class, y = term, fill = tfidf_score)) +
+        geom_tile(color = "white", size = 0.5) +
+        scale_fill_gradient2(
+          low = "#3498DB",
+          mid = "#ECF0F1",
+          high = "#E74C3C",
+          midpoint = median(heatmap_data$tfidf_score, na.rm = TRUE),
+          name = "TF-IDF\nScore"
+        ) +
+        labs(
+          title = paste0("CNN Feature Importance by ", demo_var, " Subgroup"),
+          subtitle = "TF-IDF scores for top discriminative terms",
+          x = paste0(demo_var, " Subgroup × Classification"),
+          y = "Clinical Term"
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 11, hjust = 0.5),
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+          axis.text.y = element_text(size = 9),
+          axis.title = element_text(size = 12, face = "bold"),
+          legend.title = element_text(size = 10, face = "bold"),
+          legend.text = element_text(size = 9),
+          panel.grid = element_blank()
+        )
+
+      ggsave(
+        file.path(AIM2_FIGURES_DIR,
+                  paste0("tfidf_heatmap_", tolower(demo_var), ".png")),
+        plot = tfidf_heatmap,
+        width = 12,
+        height = 10,
+        dpi = 300
+      )
+    }
+
+    # 5b. Top phrases bar chart by subgroup
+    cat("  Creating top phrases bar chart for", demo_var, "...\n")
+
+    top_phrases_data <- demo_data %>%
+      group_by(subgroup, classification) %>%
+      arrange(desc(tfidf_score)) %>%
+      slice_head(n = 15) %>%
+      ungroup() %>%
+      mutate(
+        term = factor(term),
+        subgroup_class = paste0(subgroup, " (", classification, ")")
+      )
+
+    if (nrow(top_phrases_data) > 0) {
+      top_phrases_plot <- ggplot(top_phrases_data,
+                                 aes(x = reorder(term, tfidf_score),
+                                     y = tfidf_score,
+                                     fill = classification)) +
+        geom_col() +
+        facet_wrap(~subgroup, scales = "free_y", ncol = 2) +
+        coord_flip() +
+        scale_fill_manual(
+          values = c("Correct" = "#27AE60", "Incorrect" = "#E74C3C"),
+          name = "Classification"
+        ) +
+        labs(
+          title = paste0("Top TF-IDF Terms by ", demo_var, " Subgroup"),
+          subtitle = "Comparing correct vs. incorrect classifications",
+          x = "Clinical Term",
+          y = "TF-IDF Score"
+        ) +
+        theme_classic() +
+        theme(
+          plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 11, hjust = 0.5),
+          axis.text = element_text(size = 9),
+          axis.title = element_text(size = 12, face = "bold"),
+          strip.text = element_text(size = 11, face = "bold"),
+          strip.background = element_rect(fill = "lightgray"),
+          legend.position = "bottom",
+          legend.title = element_text(size = 10, face = "bold")
+        )
+
+      ggsave(
+        file.path(AIM2_FIGURES_DIR,
+                  paste0("tfidf_top_phrases_", tolower(demo_var), ".png")),
+        plot = top_phrases_plot,
+        width = 14,
+        height = 12,
+        dpi = 300
+      )
+    }
+
+    # 5c. Comparison plot: Phrases unique to correct vs incorrect
+    cat("  Creating unique terms comparison for", demo_var, "...\n")
+
+    # Calculate uniqueness
+    unique_terms_data <- demo_data %>%
+      group_by(subgroup, term) %>%
+      summarize(
+        appears_in = paste(sort(unique(classification)), collapse = "_"),
+        max_tfidf = max(tfidf_score, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      mutate(
+        uniqueness = case_when(
+          appears_in == "Correct" ~ "Unique to Correct",
+          appears_in == "Incorrect" ~ "Unique to Incorrect",
+          TRUE ~ "Both"
+        )
+      ) %>%
+      filter(uniqueness != "Both") %>%
+      group_by(subgroup, uniqueness) %>%
+      arrange(desc(max_tfidf)) %>%
+      slice_head(n = 10) %>%
+      ungroup()
+
+    if (nrow(unique_terms_data) > 0) {
+      unique_terms_plot <- ggplot(unique_terms_data,
+                                  aes(x = reorder(term, max_tfidf),
+                                      y = max_tfidf,
+                                      fill = uniqueness)) +
+        geom_col() +
+        facet_grid(subgroup ~ uniqueness, scales = "free", space = "free_y") +
+        coord_flip() +
+        scale_fill_manual(
+          values = c(
+            "Unique to Correct" = "#27AE60",
+            "Unique to Incorrect" = "#E74C3C"
+          ),
+          name = "Term Type"
+        ) +
+        labs(
+          title = paste0("Terms Unique to Classification Groups (", demo_var, ")"),
+          subtitle = "Terms appearing only in correctly or incorrectly classified patients",
+          x = "Clinical Term",
+          y = "TF-IDF Score"
+        ) +
+        theme_classic() +
+        theme(
+          plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 11, hjust = 0.5),
+          axis.text = element_text(size = 8),
+          axis.title = element_text(size = 12, face = "bold"),
+          strip.text = element_text(size = 10, face = "bold"),
+          strip.background = element_rect(fill = "lightgray"),
+          legend.position = "bottom"
+        )
+
+      ggsave(
+        file.path(AIM2_FIGURES_DIR,
+                  paste0("tfidf_unique_terms_", tolower(demo_var), ".png")),
+        plot = unique_terms_plot,
+        width = 16,
+        height = 10,
+        dpi = 300
+      )
+    }
+  }
+
+  cat("  Demographic TF-IDF visualizations saved\n\n")
+} else {
+  cat("  No demographic TF-IDF data available for visualization\n\n")
+}
 
 # ==============================================================================
 # PART 6: LIME EXPLAINABILITY (Foundation)
