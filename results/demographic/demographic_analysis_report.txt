@@ -1,0 +1,71 @@
+ADRD ePhenotyping - Demographic Performance Analysis Report
+Aim 1: Evaluate Model Performance Across Demographic Groups
+================================================================================ 
+
+Date: 2025-11-25 11:32:20 
+Classification Threshold: 0.5 
+
+Overall Test Set Performance:
+---------------------------------------- 
+Total samples: 1460 
+ADRD cases: 657 (45.0%) 
+Control cases: 803 (55.0%) 
+AUC: 0.9867 (95% CI: 0.9818-0.9916)
+Accuracy: 0.9425 
+Sensitivity: 0.9726 
+Specificity: 0.9178 
+F1 Score: 0.9383 
+
+Demographic Variables Analyzed:
+---------------------------------------- 
+GENDER, RACE, HISPANIC 
+
+Performance by Demographic Subgroups:
+---------------------------------------- 
+        subgroup       category    n n_pos n_neg       auc  accuracy
+1      Ethnicity   Non-Hispanic 1441   650   791 0.9864145 0.9417071
+2      Ethnicity       Hispanic   14     5     9 1.0000000 1.0000000
+3         Gender         Female  828   376   452 0.9867433 0.9420290
+4         Gender           Male  632   281   351 0.9874837 0.9430380
+5  Gender × Race Female × White  546   226   320 0.9839394 0.9322344
+6  Gender × Race   Male × White  467   180   287 0.9879888 0.9421842
+7  Gender × Race Female × Black  260   137   123 0.9912765 0.9576923
+8  Gender × Race   Male × Black  147    93    54 0.9852648 0.9591837
+9        Overall            All 1460   657   803 0.9866928 0.9424658
+10          Race          White 1013   406   607 0.9854672 0.9368213
+11          Race          Black  407   230   177 0.9892533 0.9582310
+12          Race          Other   21    10    11 0.9727273 0.8571429
+13          Race          Asian   10     3     7 1.0000000 1.0000000
+   sensitivity specificity        f1
+1    0.9723077   0.9165613 0.9376855
+2    1.0000000   1.0000000 1.0000000
+3    0.9840426   0.9070796 0.9390863
+4    0.9572954   0.9316239 0.9372822
+5    0.9823009   0.8968750 0.9230769
+6    0.9555556   0.9337979 0.9272237
+7    0.9854015   0.9268293 0.9608541
+8    0.9677419   0.9444444 0.9677419
+9    0.9726027   0.9178082 0.9383260
+10   0.9704433   0.9143328 0.9248826
+11   0.9782609   0.9322034 0.9635974
+12   0.9000000   0.8181818 0.8571429
+13   1.0000000   1.0000000 1.0000000
+
+Key Findings:
+---------------------------------------- 
+- ✓ Racial fairness: AUC variability within acceptable range (0.027)
+- ✓ Gender fairness: Sensitivity difference within acceptable range (0.027)
+INTERSECTIONAL ANALYSIS
+---------------------------------------- 
+Gender × Race intersections analyzed: 4 
+AUC range: 0.0073 ✓ OK
+Best performing: Female × Black (AUC=0.9913) 
+Worst performing: Female × White (AUC=0.9839) 
+
+
+Recommendations:
+---------------------------------------- 
+1. Review subgroups with N < 10 for statistical reliability
+2. Monitor groups with AUC < 0.80 for potential bias
+3. Consider calibration adjustments for underperforming groups
+4. Validate findings with external datasets

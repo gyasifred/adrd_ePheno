@@ -1,0 +1,80 @@
+ADRD CNN Evaluation Report
+================================================================================ 
+
+Date: 2025-11-25 11:25:51 
+
+Test Set Information:
+---------------------------------------- 
+Total samples: 1460 
+ADRD cases: 657 (45.0%) 
+Control cases: 803 (55.0%) 
+
+Models Evaluated:
+---------------------------------------- 
+Number of models: 10 
+Cycles: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 
+
+Performance Summary (All Models):
+---------------------------------------- 
+Mean AUC: 0.9865 ± 0.0007 
+Range: 0.9858 - 0.9876 
+Mean Accuracy: 0.9389 
+Mean Sensitivity: 0.9709 
+Mean Specificity: 0.9126 
+Mean F1 Score: 0.9346 
+
+Best Model Selection:
+---------------------------------------- 
+Selection criteria: Median AUC
+Median AUC: 0.9867 
+Selected cycle: 9 
+
+Best Model Performance (Threshold: 0.5 ):
+---------------------------------------- 
+AUC: 0.9867 (95% CI: 0.9818-0.9916)
+Accuracy: 0.9425 
+Sensitivity (Recall): 0.9726 
+Specificity: 0.9178 
+Precision (PPV): 0.9064 
+NPV: 0.9762 
+F1 Score: 0.9383 
+F2 Score: 0.9586 
+MCC: NA 
+
+Confusion Matrix:
+---------------------------------------- 
+                Pred: CTRL Pred: ADRD
+True: CTRL      737        66        
+True: ADRD      18         639       
+
+Error Rates:
+---------------------------------------- 
+False Positive Rate: 0.0822 
+False Negative Rate: 0.0274 
+
+Calibration Metrics:
+---------------------------------------- 
+Brier Score: 0.0440 
+Log Loss: 0.1634 
+
+Youden's Index Analysis:
+---------------------------------------- 
+Optimal threshold: 0.6927 
+Youden's Index: 0.9091 
+Sensitivity at optimal: 0.9589 
+Specificity at optimal: 0.9502 
+
+Per-Cycle Results:
+---------------------------------------- 
+   cycle       auc  accuracy sensitivity specificity        f1 mcc
+1      1 0.9857915 0.9417808   0.9710807   0.9178082 0.9375459  NA
+2      2 0.9866975 0.9383562   0.9695586   0.9128269 0.9340176  NA
+3      3 0.9858066 0.9315068   0.9680365   0.9016189 0.9271137  NA
+4      4 0.9869781 0.9410959   0.9741248   0.9140722 0.9370425  NA
+5      5 0.9858578 0.9321918   0.9680365   0.9028643 0.9277899  NA
+6      5 0.9858578 0.9321918   0.9680365   0.9028643 0.9277899  NA
+7      6 0.9874595 0.9404110   0.9710807   0.9153176 0.9361702  NA
+8      7 0.9858825 0.9438356   0.9680365   0.9240349 0.9394387  NA
+9      8 0.9875818 0.9397260   0.9710807   0.9140722 0.9354839  NA
+10     9 0.9866918 0.9424658   0.9726027   0.9178082 0.9383260  NA
+11    10 0.9870292 0.9438356   0.9786910   0.9153176 0.9400585  NA
