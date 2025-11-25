@@ -160,40 +160,20 @@ adrd_tokens <- tokens(
   split_hyphens = FALSE
 )
 
-# Remove stopwords and preprocessing artifacts
-cat("Removing stopwords and preprocessing artifacts...\n")
+# Remove stopwords and masked tokens ONLY
+cat("Removing stopwords and masked tokens...\n")
 adrd_tokens <- tokens_remove(adrd_tokens, pattern = stopwords("en"))
 
-# Remove preprocessing artifacts (masked tokens from data cleaning)
-# These appear in the data due to de-identification and masking during preprocessing
-preprocessing_artifacts <- c(
-  # Masked values from preprocessing
+# Remove ONLY masked tokens from de-identification (tokens with underscores)
+# These are artifacts from data preprocessing/masking: _decnum_, _time_, _date_, etc.
+masked_tokens <- c(
   "_decnum_", "_time_", "_date_", "_phonenum_", "_ssn_", "_mrn_",
-  "_num_", "_id_", "_email_", "_url_",
-
-  # Single letter tokens (often artifacts)
-  "h", "pt", "rn", "mg", "ml", "kg", "x", "c", "f", "m", "d", "s", "t", "n", "p", "r",
-
-  # Common medical abbreviations that are too generic
-  "pt", "pts", "hx", "dx", "rx", "tx", "sx", "fx", "o", "q", "am", "pm",
-
-  # Very short words (likely artifacts)
-  "ii", "iii", "iv", "vs", "os", "od", "ou",
-
-  # Common non-informative tokens
-  "na", "unk", "unknown", "other", "etc", "ie", "eg", "vs",
-
-  # Temporal artifacts
-  "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
-  "mon", "tue", "wed", "thu", "fri", "sat", "sun"
+  "_num_", "_id_", "_email_", "_url_", "_name_", "_address_",
+  "_age_", "_dob_", "_zip_", "_fax_", "_hipaa_"
 )
 
-cat("  Removing", length(preprocessing_artifacts), "preprocessing artifacts\n")
-adrd_tokens <- tokens_remove(adrd_tokens, pattern = preprocessing_artifacts, valuetype = "fixed")
-
-# Remove very short tokens (1-2 characters) that survived stopword removal
-cat("  Removing very short tokens (≤2 characters)\n")
-adrd_tokens <- tokens_select(adrd_tokens, min_nchar = 3)
+cat("  Removing", length(masked_tokens), "masked tokens (de-identification artifacts)\n")
+adrd_tokens <- tokens_remove(adrd_tokens, pattern = masked_tokens, valuetype = "fixed")
 
 # Create Document-Feature Matrix
 cat("Creating document-feature matrix...\n")
@@ -395,8 +375,7 @@ if (length(demo_vars_available) == 0) {
                            remove_numbers = TRUE) %>%
         tokens_tolower() %>%
         tokens_remove(pattern = stopwords("en")) %>%
-        tokens_remove(pattern = preprocessing_artifacts, valuetype = "fixed") %>%
-        tokens_select(min_nchar = 3)
+        tokens_remove(pattern = masked_tokens, valuetype = "fixed")
 
       sub_dfm <- dfm(sub_tokens) %>%
         dfm_trim(min_termfreq = 5, min_docfreq = 3)
@@ -666,8 +645,7 @@ if (is.null(predictions)) {
                             remove_numbers = TRUE) %>%
           tokens_tolower() %>%
           tokens_remove(pattern = stopwords("en")) %>%
-          tokens_remove(pattern = preprocessing_artifacts, valuetype = "fixed") %>%
-          tokens_select(min_nchar = 3)
+          tokens_remove(pattern = masked_tokens, valuetype = "fixed")
 
         sub_dfm <- dfm(sub_tokens) %>%
           dfm_trim(min_termfreq = 5, min_docfreq = 3)
