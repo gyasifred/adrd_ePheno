@@ -596,7 +596,7 @@ cat("  'Label'   to 'label' (numeric format)\n")
 cat("\nOutput Files:\n")
 cat("  ", train_file, "\n", sep = "")
 cat("  ", test_file, "\n", sep = "")
-cat("  ", split_info_file, "\n", sep = "")
+cat("  ", dataset_info_file, "\n", sep = "")
 cat("  ", summary_file, "\n", sep = "")
 
 cat("\nNext Steps:\n")
