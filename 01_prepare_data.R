@@ -336,6 +336,60 @@ cat("\n  Label conversion complete\n")
 cat("    Final dataset: ", sum(clean_data$label == 1), " ADRD, ",
     sum(clean_data$label == 0), " NON-ADRD\n\n", sep = "")
 
+# Normalize Demographics ------------------------------------------------------
+cat("Normalizing demographic variables...\n")
+
+# Normalize GENDER: M/MALE → Male, F/FEMALE → Female
+if ("GENDER" %in% names(clean_data)) {
+  cat("  Normalizing GENDER...\n")
+  clean_data <- clean_data %>%
+    mutate(GENDER = case_when(
+      toupper(GENDER) %in% c("MALE", "M") ~ "Male",
+      toupper(GENDER) %in% c("FEMALE", "F") ~ "Female",
+      TRUE ~ GENDER
+    ))
+
+  gender_counts <- table(clean_data$GENDER)
+  cat("    Result:", paste(names(gender_counts), "=", gender_counts, collapse = ", "), "\n")
+}
+
+# Normalize RACE: standardize capitalization
+if ("RACE" %in% names(clean_data)) {
+  cat("  Normalizing RACE...\n")
+  clean_data <- clean_data %>%
+    mutate(RACE = case_when(
+      toupper(RACE) == "WHITE OR CAUCASIAN" ~ "White",
+      toupper(RACE) == "BLACK OR AFRICAN AMERICAN" ~ "Black",
+      toupper(RACE) == "OTHER ASIAN" ~ "Asian",
+      toupper(RACE) == "AMERICAN INDIAN OR ALASKA NATIVE" ~ "Native American",
+      toupper(RACE) == "PATIENT REFUSED" ~ "Unknown",
+      toupper(RACE) == "UNKNOWN" ~ "Unknown",
+      toupper(RACE) == "OTHER" ~ "Other",
+      TRUE ~ RACE
+    ))
+
+  race_counts <- table(clean_data$RACE)
+  cat("    Result:", paste(names(race_counts), "=", race_counts, collapse = ", "), "\n")
+}
+
+# Normalize HISPANIC: YES/NO standardization
+if ("HISPANIC" %in% names(clean_data)) {
+  cat("  Normalizing HISPANIC...\n")
+  clean_data <- clean_data %>%
+    mutate(HISPANIC = case_when(
+      grepl("YES", toupper(HISPANIC)) ~ "Hispanic",
+      grepl("NO", toupper(HISPANIC)) ~ "Non-Hispanic",
+      toupper(HISPANIC) == "PATIENT REFUSED" ~ "Unknown",
+      toupper(HISPANIC) == "UNKNOWN" ~ "Unknown",
+      TRUE ~ HISPANIC
+    ))
+
+  hisp_counts <- table(clean_data$HISPANIC)
+  cat("    Result:", paste(names(hisp_counts), "=", hisp_counts, collapse = ", "), "\n")
+}
+
+cat("Demographic normalization complete\n\n")
+
 # Dataset Assignment ---------------------------------------------------------
 cat(strrep("=", 80), "\n", sep = "")
 cat("Dataset Assignment for Evaluation\n")
@@ -466,48 +520,53 @@ cat(strrep("-", 40), "\n")
 cat("'content' to 'txt'      (for pipeline compatibility)\n")
 cat("'Label'   to 'label'    (string to numeric)\n\n")
 
-cat("TRAIN/TEST SPLIT\n")
+cat("DATASET ASSIGNMENT\n")
 cat(strrep("-", 40), "\n")
+cat("Approach:          FULL DATASET for evaluation\n")
 cat("Random seed:       ", RANDOM_SEED, "\n")
-cat("Target ratio:      ", sprintf("%.2f / %.2f", TRAIN_PROPORTION, 1 - TRAIN_PROPORTION), "\n")
-cat("Actual ratio:      ", sprintf("%.4f / %.4f", actual_prop, 1 - actual_prop), "\n")
-cat("Stratified by:     ", paste(strat_vars, collapse = ", "), "\n\n")
+cat("Using:             Pre-trained CNN models (Jihad Obeid)\n")
+cat("Training:          NOT REQUIRED\n\n")
 
-cat("TRAINING SET\n")
-cat(strrep("-", 40), "\n")
-cat("Total patients:    ", nrow(train_data), "\n")
-cat("ADRD cases:        ", sum(train_data$label == 1), 
-    sprintf(" (%.2f%%)\n", mean(train_data$label) * 100))
-cat("Control cases:     ", sum(train_data$label == 0), 
-    sprintf(" (%.2f%%)\n", mean(train_data$label == 0) * 100), "\n")
-
-cat("TEST SET\n")
+cat("TEST SET (FULL DATASET)\n")
 cat(strrep("-", 40), "\n")
 cat("Total patients:    ", nrow(test_data), "\n")
-cat("ADRD cases:        ", sum(test_data$label == 1), 
+cat("ADRD cases:        ", sum(test_data$label == 1),
     sprintf(" (%.2f%%)\n", mean(test_data$label) * 100))
-cat("Control cases:     ", sum(test_data$label == 0), 
+cat("Control cases:     ", sum(test_data$label == 0),
     sprintf(" (%.2f%%)\n", mean(test_data$label == 0) * 100), "\n")
 
-cat("QUALITY CHECKS\n")
+cat("TRAINING SET (REFERENCE ONLY)\n")
 cat(strrep("-", 40), "\n")
-cat("Patient overlap:   ", length(overlap), " (should be 0)\n")
-cat("Label balance diff:", sprintf("%.2f percentage points\n", prop_diff))
-cat("Status:            ", ifelse(length(overlap) == 0 && prop_diff < 5, 
-                                 "PASSED", "CHECK WARNINGS"), "\n\n")
+cat("Total patients:    ", nrow(train_data), " (minimal reference)\n")
+cat("Purpose:           Pipeline compatibility only\n")
+cat("Note:              NOT USED for evaluation\n\n")
+
+cat("DEMOGRAPHICS (Normalized)\n")
+cat(strrep("-", 40), "\n")
+if ("GENDER" %in% names(test_data)) {
+  cat("Gender:            ", paste(names(table(test_data$GENDER)), collapse = ", "), "\n")
+}
+if ("RACE" %in% names(test_data)) {
+  cat("Race:              ", paste(names(table(test_data$RACE)), collapse = ", "), "\n")
+}
+if ("HISPANIC" %in% names(test_data)) {
+  cat("Ethnicity:         ", paste(names(table(test_data$HISPANIC)), collapse = ", "), "\n")
+}
+cat("\n")
 
 cat("OUTPUT FILES\n")
 cat(strrep("-", 40), "\n")
-cat("Training set:      ", train_file, "\n")
-cat("Test set:          ", test_file, "\n")
-cat("Split metadata:    ", split_info_file, "\n")
+cat("Test set:          ", test_file, " (FULL DATASET)\n")
+cat("Train set:         ", train_file, " (reference only)\n")
+cat("Dataset metadata:  ", dataset_info_file, "\n")
 cat("This report:       ", summary_file, "\n\n")
 
 cat("NEXT STEPS\n")
 cat(strrep("-", 40), "\n")
 cat("1. Review this summary report\n")
 cat("2. Verify label distributions are acceptable\n")
-cat("3. Run 02_train_cnnr.R to train CNN models\n")
+cat("3. Run 03_evaluate_models.R (using Jihad's pre-trained models)\n")
+cat("4. Skip training - models are pre-trained!\n")
 
 sink()
 
@@ -521,10 +580,10 @@ cat(strrep("=", 80), "\n\n")
 cat("Processing Summary:\n")
 cat("  Input:       ", nrow(raw_data), " records\n", sep = "")
 cat("  Clean:       ", nrow(clean_data), " records\n", sep = "")
-cat("  Training:    ", nrow(train_data), 
-    sprintf(" (%.1f%%, %d ADRD)\n", actual_prop * 100, sum(train_data$label)), sep = "")
-cat("  Test:        ", nrow(test_data), 
-    sprintf(" (%.1f%%, %d ADRD)\n", (1 - actual_prop) * 100, sum(test_data$label)), sep = "")
+cat("  Test set:    ", nrow(test_data),
+    sprintf(" (100%%, %d ADRD, %d NON-ADRD)\n",
+            sum(test_data$label), sum(test_data$label == 0)), sep = "")
+cat("  Train set:   ", nrow(train_data), " (reference only, not used)\n", sep = "")
 
 cat("\nLabel Conversion:\n")
 cat("  'ADRD'     to 1 (", sum(clean_data$label == 1), " cases)\n", sep = "")
