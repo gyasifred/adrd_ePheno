@@ -67,7 +67,6 @@ GENDER,Female,Incorrect,west,0
 GENDER,Female,Incorrect,ashley,0
 GENDER,Female,Incorrect,m,0
 GENDER,Female,Incorrect,greene,0
-GENDER,Female,Incorrect,_lgnum_,0
 GENDER,Female,Incorrect,date,0
 GENDER,Female,Incorrect,chief,0
 GENDER,Female,Incorrect,complaint,0
@@ -79,6 +78,7 @@ GENDER,Female,Incorrect,loss,0
 GENDER,Female,Incorrect,pt,0
 GENDER,Female,Incorrect,s,0
 GENDER,Female,Incorrect,states,0
+GENDER,Female,Incorrect,unable,0
 RACE,White,Correct,cystitis,62.61423909810809
 RACE,White,Correct,esrd,58.39981915881235
 RACE,White,Correct,zyprexa,51.47612925854079

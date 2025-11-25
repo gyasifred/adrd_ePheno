@@ -1,46 +1,46 @@
 ADRD ePhenotyping - AIM 2: Feature Analysis Report
 ================================================================================ 
 
-Date: 2025-11-25 12:26:51 
+Date: 2025-11-25 12:53:10 
 
 CORPUS STATISTICS
 ---------------------------------------- 
 Total documents: 1460 
 ADRD documents: 657 (45.0%)
 Control documents: 803 (55.0%)
-Unique features (after trimming): 13890 
+Unique features (after trimming): 13889 
 Min term frequency threshold: 10 
 
 CHI-SQUARED TEST RESULTS
 ---------------------------------------- 
-Features tested: 13890 
-Significant features (FDR < 0.05): 3780
-  Overrepresented in ADRD: 3780 
+Features tested: 13889 
+Significant features (FDR < 0.05): 3790
+  Overrepresented in ADRD: 3790 
   Overrepresented in CTRL: 0 
 
 TOP 20 DISCRIMINATIVE TERMS FOR ADRD
 ---------------------------------------- 
        feature      chi2    p_adjusted
-1         goal 4596.2531  0.000000e+00
-2      outcome 4377.1496  0.000000e+00
-3      ongoing 3696.3410  0.000000e+00
-4  progressing 2738.0771  0.000000e+00
-5    discharge 2113.5886  0.000000e+00
-6         oral 2096.6125  0.000000e+00
-7           pt 2039.8680  0.000000e+00
-8     dementia 1850.2450  0.000000e+00
-9    admission 1830.3518  0.000000e+00
-10        care 1707.9254  0.000000e+00
-11       acute 1660.5643  0.000000e+00
-12         bed 1414.7156 1.542509e-306
-13           h 1360.1170 1.042152e-294
-14          rn 1219.9431 2.803591e-264
-15        home 1181.4103 6.194506e-256
-16      injury 1160.2992 2.249552e-251
-17        fall 1114.8521 1.596366e-241
-18   inpatient 1025.8969 3.256194e-222
-19         qhs  993.9926 2.654640e-215
-20    impaired  894.5220 1.057671e-193
+1         goal 4623.3391  0.000000e+00
+2      outcome 4400.5423  0.000000e+00
+3      ongoing 3717.0221  0.000000e+00
+4  progressing 2753.1246  0.000000e+00
+5    discharge 2128.6168  0.000000e+00
+6         oral 2114.4371  0.000000e+00
+7           pt 2059.3608  0.000000e+00
+8     dementia 1857.8092  0.000000e+00
+9    admission 1841.0277  0.000000e+00
+10        care 1725.0143  0.000000e+00
+11       acute 1673.4198  0.000000e+00
+12         bed 1422.9207 2.542301e-308
+13           h 1372.4331 2.195608e-297
+14          rn 1226.4343 1.088891e-265
+15        home 1192.0649 2.995100e-258
+16      injury 1167.4812 6.182782e-253
+17        fall 1121.9257 4.631479e-243
+18   inpatient 1031.8083 1.689611e-223
+19         qhs  998.7908 2.404448e-216
+20    impaired  899.5095 8.711406e-195
 
 TOP 20 DISCRIMINATIVE TERMS FOR CTRL
 ---------------------------------------- 
