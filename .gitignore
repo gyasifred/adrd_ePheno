@@ -1,0 +1,22 @@
+# Generated files - these are created by scripts and should not be tracked
+results/aim2/behavioral_testing_template.R
+results/aim2/behavioral_test_results.csv
+results/aim2/behavioral_test_summary.csv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# R artifacts
+.Rhistory
+.RData
+.Rproj.user/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
