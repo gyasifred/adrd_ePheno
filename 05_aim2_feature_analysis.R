@@ -550,7 +550,7 @@ if (is.null(predictions)) {
 
   # Merge predictions with full corpus data
   full_corpus_with_preds <- full_corpus %>%
-    left_join(predictions %>% select(DE_ID, predicted_class, predicted_prob),
+    left_join(predictions %>% select(DE_ID, Predicted_Class, Predicted_Probability, Correct),
               by = "DE_ID")
 
   # Check for demographic variables
@@ -609,9 +609,9 @@ if (is.null(predictions)) {
           filter(.data[[demo_var]] == demo_val,
                  partition == "test")  # Only test set has predictions
 
-        # Create classification correctness indicator
+        # Use existing classification correctness indicator from predictions
         subgroup_data <- subgroup_data %>%
-          mutate(correct = (predicted_class == label))
+          mutate(correct = Correct)
 
         # Check minimum sample sizes
         n_correct <- sum(subgroup_data$correct, na.rm = TRUE)
