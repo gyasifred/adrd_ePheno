@@ -93,21 +93,20 @@ cat(strrep("=", 80) %+% "\n\n")
 train_file <- file.path(DATA_DIR, "train_set.rds")
 test_file <- file.path(DATA_DIR, "test_set.rds")
 
-if (!file.exists(train_file) || !file.exists(test_file)) {
+if (!file.exists(test_file)) {
   stop("Data files not found! Run 01_prepare_data.R first.")
 }
 
-train_set <- readRDS(train_file)
+# NOTE: train_set is minimal reference only (10 samples)
+# test_set contains FULL DATASET (all patients)
+# We use ONLY test_set to avoid duplicates
 test_set <- readRDS(test_file)
 
-cat("Training set:", nrow(train_set), "samples\n")
-cat("Test set:", nrow(test_set), "samples\n")
+cat("Test set (FULL DATASET):", nrow(test_set), "samples\n")
+cat("Note: Using test set only (contains all data)\n")
 
-# Combine for corpus analysis
-full_corpus <- bind_rows(
-  train_set %>% mutate(partition = "train"),
-  test_set %>% mutate(partition = "test")
-)
+# Use test set as full corpus (no train/test split for evaluation)
+full_corpus <- test_set %>% mutate(partition = "test")
 
 cat("Total corpus:", nrow(full_corpus), "documents\n\n")
 
