@@ -1627,6 +1627,12 @@ behavioral_script <- '# Behavioral Testing Script Template
 #   4. Measure sensitivity (Δ prediction)
 # ==============================================================================
 
+# Load required libraries
+suppressPackageStartupMessages({
+  library(tidyverse)  # For data manipulation (filter, %>%, etc.)
+  library(keras)      # For model prediction functions
+})
+
 # Load terms
 behavioral_test_terms <- readRDS("results/aim2/behavioral_test_terms.rds")
 
@@ -1679,26 +1685,79 @@ test_term_removal <- function(de_id, term, model, artifacts, test_set) {
 
 # Run behavioral tests
 # Example: Test all ADRD terms on all ADRD cases
+cat("\\n")
+cat("================================================================================\\n")
+cat("Running Behavioral Tests\\n")
+cat("================================================================================\\n\\n")
+
 results <- data.frame()
 
-for (term in behavioral_test_terms$adrd) {
-  adrd_cases <- test_set %>% filter(label == 1)
+# Get ADRD cases
+adrd_cases <- test_set %>% filter(label == 1)
+n_cases_to_test <- min(50, nrow(adrd_cases))
 
-  for (de_id in adrd_cases$DE_ID[1:min(50, nrow(adrd_cases))]) {
+cat("Testing", length(behavioral_test_terms$adrd), "ADRD terms on", n_cases_to_test, "ADRD cases\\n\\n")
+
+for (i in seq_along(behavioral_test_terms$adrd)) {
+  term <- behavioral_test_terms$adrd[i]
+  cat("Testing term", i, "of", length(behavioral_test_terms$adrd), ":", term, "\\n")
+
+  term_results <- 0
+
+  for (de_id in adrd_cases$DE_ID[1:n_cases_to_test]) {
     result <- test_term_removal(de_id, term, model, artifacts, test_set)
 
     if (result$term_present) {
       results <- rbind(results, data.frame(
         DE_ID = de_id,
         term = term,
-        pred_change = result$pred_change
+        pred_orig = result$pred_orig,
+        pred_mod = result$pred_mod,
+        pred_change = result$pred_change,
+        stringsAsFactors = FALSE
       ))
+      term_results <- term_results + 1
     }
   }
+
+  cat("  Found term in", term_results, "cases\\n")
 }
 
-# Analyze results
-summary(results$pred_change)
+# Analyze and save results
+cat("\\n")
+cat("================================================================================\\n")
+cat("Results Summary\\n")
+cat("================================================================================\\n\\n")
+
+if (nrow(results) > 0) {
+  cat("Total tests with term present:", nrow(results), "\\n")
+  cat("Prediction change summary:\\n")
+  print(summary(results$pred_change))
+  cat("\\n")
+
+  # Aggregate by term
+  term_summary <- results %>%
+    group_by(term) %>%
+    summarize(
+      n_cases = n(),
+      mean_change = mean(pred_change),
+      sd_change = sd(pred_change),
+      median_change = median(pred_change),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(abs(mean_change)))
+
+  cat("\\nMean prediction change by term:\\n")
+  print(term_summary)
+
+  # Save results
+  write_csv(results, "results/aim2/behavioral_test_results.csv")
+  write_csv(term_summary, "results/aim2/behavioral_test_summary.csv")
+  cat("\\nResults saved to results/aim2/behavioral_test_results.csv\\n")
+  cat("Summary saved to results/aim2/behavioral_test_summary.csv\\n")
+} else {
+  cat("No results - terms not found in any test cases\\n")
+}
 '
 
 writeLines(behavioral_script,
