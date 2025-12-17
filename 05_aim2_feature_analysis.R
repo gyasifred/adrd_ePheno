@@ -2011,6 +2011,22 @@ cat("2. Examine LIME feature importance differences\n")
 cat("3. If low overlap (<50%), investigate differential documentation patterns\n")
 cat("4. Consider demographic-specific model recalibration if needed\n\n")
 
+# Run statistical significance testing for feature overlap
+cat(strrep("=", 80) %+% "\n")
+cat("Running Statistical Significance Testing for Feature Overlap\n")
+cat(strrep("=", 80) %+% "\n")
+cat("Applying approximate randomization (10,000 permutations)...\n\n")
+tryCatch({
+  source("aim2_statistical_enhancement.R")
+  cat("\n✓ Feature overlap permutation tests completed!\n")
+  cat("  Check results/aim2/ for permutation test results\n")
+  cat("  Check figures/aim2/ for null distribution visualizations\n\n")
+}, error = function(e) {
+  cat("\n⚠ Warning: Could not run statistical enhancement\n")
+  cat("  Error:", conditionMessage(e), "\n")
+  cat("  You can run aim2_statistical_enhancement.R manually\n\n")
+})
+
 cat(strrep("=", 80) %+% "\n")
 cat("Analysis completed successfully!\n")
 cat(strrep("=", 80) %+% "\n")

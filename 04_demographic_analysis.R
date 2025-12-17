@@ -705,37 +705,30 @@ if ("GENDER" %in% available_demos) {
         filter(GENDER == gender_b) %>%
         select(label = true_label, pred = predicted_prob)
 
-      # Comprehensive comparison
-      stat_result <- compare_groups_comprehensive(
+      # Comprehensive comparison for ALL 8 metrics
+      stat_result <- compare_all_metrics_comprehensive(
         data_a, data_b,
         group_a_name = gender_a,
         group_b_name = gender_b,
         n_perm = N_PERMUTATIONS,
-        n_boot = N_BOOTSTRAP
+        n_boot = N_BOOTSTRAP,
+        threshold = OPTIMAL_THRESHOLD
       )
 
-      cat("\nStatistical Test Results:\n")
-      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
-      if (stat_result$perm_p_value < FDR_ALPHA) {
-        cat(" *** SIGNIFICANT\n")
-      } else {
-        cat(" (not significant)\n")
-      }
-      cat("  Cohen's d (effect size):", sprintf("%.3f", stat_result$cohens_d), "\n")
-      cat("  Interpretation:",
-          ifelse(abs(stat_result$cohens_d) >= 0.8, "Large effect",
-          ifelse(abs(stat_result$cohens_d) >= 0.5, "Medium effect",
-          ifelse(abs(stat_result$cohens_d) >= 0.2, "Small effect", "Negligible"))), "\n\n")
+      cat("\nStatistical Test Results (ALL 8 Metrics):\n")
+      print(stat_result$summary_table, row.names = FALSE)
+      cat("\n")
+
+      # Save comprehensive results
+      write_csv(stat_result$summary_table,
+                file.path(DEMO_RESULTS_DIR,
+                          paste0("all_metrics_gender_", gender_a, "_vs_", gender_b, ".csv")))
 
       # Store for later
       if (!exists("statistical_test_results")) {
         statistical_test_results <- list()
       }
       statistical_test_results$gender <- stat_result
-
-      # Plot null distribution
-      cat("Creating null distribution visualization for Gender...\n")
-      plot_null_distribution(stat_result, "Gender", DEMO_FIGURES_DIR)
     }
   }
 }
@@ -852,27 +845,27 @@ if ("RACE" %in% available_demos) {
         filter(RACE == race_b) %>%
         select(label = true_label, pred = predicted_prob)
 
-      stat_result <- compare_groups_comprehensive(
+      stat_result <- compare_all_metrics_comprehensive(
         data_a, data_b,
         group_a_name = simplify_category_name(race_a),
         group_b_name = simplify_category_name(race_b),
         n_perm = N_PERMUTATIONS,
-        n_boot = N_BOOTSTRAP
+        n_boot = N_BOOTSTRAP,
+        threshold = OPTIMAL_THRESHOLD
       )
 
-      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
-      if (stat_result$perm_p_value < FDR_ALPHA) {
-        cat(" *** SIGNIFICANT\n")
-      } else {
-        cat(" (not significant)\n")
-      }
-      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+      cat("\nStatistical Test Results (ALL 8 Metrics):\n")
+      print(stat_result$summary_table, row.names = FALSE)
+      cat("\n")
+
+      # Save comprehensive results
+      write_csv(stat_result$summary_table,
+                file.path(DEMO_RESULTS_DIR,
+                          paste0("all_metrics_race_",
+                                 simplify_category_name(race_a), "_vs_",
+                                 simplify_category_name(race_b), ".csv")))
 
       statistical_test_results$race <- stat_result
-
-      # Plot null distribution
-      cat("Creating null distribution visualization for Race...\n")
-      plot_null_distribution(stat_result, "Race", DEMO_FIGURES_DIR)
     }
   }
 }
@@ -983,27 +976,27 @@ if ("HISPANIC" %in% available_demos) {
         filter(HISPANIC == eth_b) %>%
         select(label = true_label, pred = predicted_prob)
 
-      stat_result <- compare_groups_comprehensive(
+      stat_result <- compare_all_metrics_comprehensive(
         data_a, data_b,
         group_a_name = simplify_category_name(eth_a),
         group_b_name = simplify_category_name(eth_b),
         n_perm = N_PERMUTATIONS,
-        n_boot = N_BOOTSTRAP
+        n_boot = N_BOOTSTRAP,
+        threshold = OPTIMAL_THRESHOLD
       )
 
-      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
-      if (stat_result$perm_p_value < FDR_ALPHA) {
-        cat(" *** SIGNIFICANT\n")
-      } else {
-        cat(" (not significant)\n")
-      }
-      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+      cat("\nStatistical Test Results (ALL 8 Metrics):\n")
+      print(stat_result$summary_table, row.names = FALSE)
+      cat("\n")
+
+      # Save comprehensive results
+      write_csv(stat_result$summary_table,
+                file.path(DEMO_RESULTS_DIR,
+                          paste0("all_metrics_ethnicity_",
+                                 simplify_category_name(eth_a), "_vs_",
+                                 simplify_category_name(eth_b), ".csv")))
 
       statistical_test_results$ethnicity <- stat_result
-
-      # Plot null distribution
-      cat("Creating null distribution visualization for Ethnicity...\n")
-      plot_null_distribution(stat_result, "Ethnicity", DEMO_FIGURES_DIR)
     }
   }
 }
@@ -1104,27 +1097,25 @@ if ("INSURANCE" %in% sdoh_variables) {
         filter(INSURANCE == ins_b) %>%
         select(label = true_label, pred = predicted_prob)
 
-      stat_result <- compare_groups_comprehensive(
+      stat_result <- compare_all_metrics_comprehensive(
         data_a, data_b,
         group_a_name = ins_a,
         group_b_name = ins_b,
         n_perm = N_PERMUTATIONS,
-        n_boot = N_BOOTSTRAP
+        n_boot = N_BOOTSTRAP,
+        threshold = OPTIMAL_THRESHOLD
       )
 
-      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
-      if (stat_result$perm_p_value < FDR_ALPHA) {
-        cat(" *** SIGNIFICANT\n")
-      } else {
-        cat(" (not significant)\n")
-      }
-      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+      cat("\nStatistical Test Results (ALL 8 Metrics):\n")
+      print(stat_result$summary_table, row.names = FALSE)
+      cat("\n")
+
+      # Save comprehensive results
+      write_csv(stat_result$summary_table,
+                file.path(DEMO_RESULTS_DIR,
+                          paste0("all_metrics_insurance_", ins_a, "_vs_", ins_b, ".csv")))
 
       statistical_test_results$insurance <- stat_result
-
-      # Plot null distribution
-      cat("Creating null distribution visualization for Insurance...\n")
-      plot_null_distribution(stat_result, "Insurance", DEMO_FIGURES_DIR)
     }
   }
 }
@@ -1225,27 +1216,25 @@ if ("EDUCATION" %in% sdoh_variables) {
         filter(EDUCATION == edu_b) %>%
         select(label = true_label, pred = predicted_prob)
 
-      stat_result <- compare_groups_comprehensive(
+      stat_result <- compare_all_metrics_comprehensive(
         data_a, data_b,
         group_a_name = edu_a,
         group_b_name = edu_b,
         n_perm = N_PERMUTATIONS,
-        n_boot = N_BOOTSTRAP
+        n_boot = N_BOOTSTRAP,
+        threshold = OPTIMAL_THRESHOLD
       )
 
-      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
-      if (stat_result$perm_p_value < FDR_ALPHA) {
-        cat(" *** SIGNIFICANT\n")
-      } else {
-        cat(" (not significant)\n")
-      }
-      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+      cat("\nStatistical Test Results (ALL 8 Metrics):\n")
+      print(stat_result$summary_table, row.names = FALSE)
+      cat("\n")
+
+      # Save comprehensive results
+      write_csv(stat_result$summary_table,
+                file.path(DEMO_RESULTS_DIR,
+                          paste0("all_metrics_education_", edu_a, "_vs_", edu_b, ".csv")))
 
       statistical_test_results$education <- stat_result
-
-      # Plot null distribution
-      cat("Creating null distribution visualization for Education...\n")
-      plot_null_distribution(stat_result, "Education", DEMO_FIGURES_DIR)
     }
   }
 }
@@ -1346,27 +1335,25 @@ if ("FINANCIAL_CLASS" %in% sdoh_variables) {
         filter(FINANCIAL_CLASS == fin_b) %>%
         select(label = true_label, pred = predicted_prob)
 
-      stat_result <- compare_groups_comprehensive(
+      stat_result <- compare_all_metrics_comprehensive(
         data_a, data_b,
         group_a_name = fin_a,
         group_b_name = fin_b,
         n_perm = N_PERMUTATIONS,
-        n_boot = N_BOOTSTRAP
+        n_boot = N_BOOTSTRAP,
+        threshold = OPTIMAL_THRESHOLD
       )
 
-      cat("  Permutation test p-value:", sprintf("%.4f", stat_result$perm_p_value))
-      if (stat_result$perm_p_value < FDR_ALPHA) {
-        cat(" *** SIGNIFICANT\n")
-      } else {
-        cat(" (not significant)\n")
-      }
-      cat("  Cohen's d:", sprintf("%.3f", stat_result$cohens_d), "\n\n")
+      cat("\nStatistical Test Results (ALL 8 Metrics):\n")
+      print(stat_result$summary_table, row.names = FALSE)
+      cat("\n")
+
+      # Save comprehensive results
+      write_csv(stat_result$summary_table,
+                file.path(DEMO_RESULTS_DIR,
+                          paste0("all_metrics_financial_", fin_a, "_vs_", fin_b, ".csv")))
 
       statistical_test_results$financial_class <- stat_result
-
-      # Plot null distribution
-      cat("Creating null distribution visualization for Financial Class...\n")
-      plot_null_distribution(stat_result, "Financial_Class", DEMO_FIGURES_DIR)
     }
   }
 }
@@ -1854,8 +1841,24 @@ cat("\n")
 cat("Next Steps:\n")
 cat("  1. Review demographic_analysis_report.txt for key findings\n")
 cat("  2. Check visualizations in figures/demographic/\n")
-cat("  3. Assess fairness metrics and identify any disparities\n")
-cat("  4. Run 05_inference.R to apply model to new data\n\n")
+cat("  3. Review all_metrics_*.csv files for comprehensive results\n")
+cat("  4. Assess fairness metrics and identify any disparities\n")
+cat("  5. Run 05_inference.R to apply model to new data\n\n")
+
+# Generate comprehensive Yeh 2000 style visualizations for ALL 8 metrics
+cat(strrep("=", 80) %+% "\n")
+cat("Generating Comprehensive Visualizations (ALL 8 Metrics - Yeh 2000 Style)\n")
+cat(strrep("=", 80) %+% "\n")
+cat("Running create_f1_comparison_plot.R...\n\n")
+tryCatch({
+  source("create_f1_comparison_plot.R")
+  cat("\n✓ Yeh 2000 style visualizations generated successfully!\n")
+  cat("  Check figures/demographic/ for ALL 8 metric plots\n\n")
+}, error = function(e) {
+  cat("\n⚠ Warning: Could not generate comprehensive visualizations\n")
+  cat("  Error:", conditionMessage(e), "\n")
+  cat("  You can run create_f1_comparison_plot.R manually\n\n")
+})
 
 cat(strrep("=", 80) %+% "\n")
 cat("Analysis completed successfully!\n")
